@@ -18,7 +18,19 @@ import {
   createSquidOrgans,
   createTentacleMeshes,
   createRoundedCubeGeometry,
-  createPhysicalJellyMaterial
+  createPhysicalJellyMaterial,
+  createPineappleRingGeometry,
+  createPineappleRadialTexture,
+  createGummyBearGeometry,
+  createGummyBearFace,
+  createMooncakeGeometry,
+  createMooncakeMaterial,
+  applyMooncakeGradientColors,
+  MOONCAKE_FLAVORS,
+  createOrangePithTexture,
+  createOrangeSliceGeometry,
+  createKitchenKnifeMesh,
+  createDicePipIndentMeshes
 } from './models.js';
 
 /* ---------- 菠萝与整果贴图 ---------- */
@@ -164,11 +176,11 @@ export function buildWatermelon(flesh = '#f2263a', fleshDark = '#c11126') {
  * 4. 材质：粉橘/肉粉色高透果冻凝胶（#f4826b，attenuation #b93822），透光水润，链式柔动
  * ============================================================ */
 export function buildSquid(colorId = 'peach') {
-  // 1. 水滴形饱满外套膜 + 展开平滑三角形/菱形肉鳍
+  // 1. 水滴形饱满平躺外套膜 + 顶端宽大菱形双肉鳍 (严格对齐 shot-006.png)
   const squidGeom = createSquidGeometry();
 
-  // 颜色方案：严格对齐 shot-006.png 粉橘肉粉色高透果冻 (#f4826b，attenuation #b93822)
-  let baseColor = '#ffedd5';
+  // 颜色方案：严格对齐 shot-006.png 娇嫩肉粉色果冻高透凝胶 (#ffedd5, attenuation #f43f5e)
+  let baseColor = '#fff1ee';
   let attColor = '#f43f5e';
   if (colorId === 'cyan') {
     baseColor = '#e0f2fe';
@@ -180,23 +192,23 @@ export function buildSquid(colorId = 'peach') {
 
   const squidMat = jellyMaterial(baseColor, {
     baseColor,
-    transmission: 0.95,
-    thickness: 2.0,
-    roughness: 0.04,
-    ior: 1.39,
+    transmission: 0.96,
+    thickness: 2.2,
+    roughness: 0.035,
+    ior: 1.40,
     attenuation: attColor,
     attenuationDistance: 1.35,
     clearcoat: 1.0,
-    clearcoatRoughness: 0.025,
-    dispersion: 0.052
+    clearcoatRoughness: 0.02,
+    dispersion: 0.055
   });
   const squidMesh = new THREE.Mesh(squidGeom, squidMat);
   squidMesh.frustumCulled = false;
 
-  // 2. 两侧黑亮大眼睛 + 白色瞳孔高光 + 内部微发光心脏
+  // 2. 两侧黑亮大眼睛 + 白色瞳孔高光 + 内部微发光心脏 (严格对齐 shot-006)
   const organs = createSquidOrgans();
 
-  // 3. 触须系统：6 根带吸盘波浪短触须 + 2 根带椭圆勺状掌长触腕
+  // 3. 触须系统：6 根波浪卷翘短触手 + 2 根长捕食触腕 (带颗粒吸盘与勺状掌)
   const tentacleMeshes = createTentacleMeshes(8);
 
   return {
@@ -205,58 +217,191 @@ export function buildSquid(colorId = 'peach') {
     organs,
     followers: [],
     tentacles: tentacleMeshes,
-    restY: 0,
+    restY: 0.05,
     isSquid: true
   };
 }
 
 /* ============================================================
- * 02 🍍 菠萝圈
+ * 02 🍍 菠萝圈 (对齐 shot-001.png target-watermelon 下方厚切菠萝片)
+ * 1. 形状：18 瓣菠萝眼圆润凹凸波浪外圈 + 圆滑去芯内孔，上下圆角倒角饱满厚切
+ * 2. 肌理：1024x1024 高精放射状果肉微纤维束 + 晶莹多汁微胞元孔隙
+ * 3. 材质：高透光金黄蜜糖色 (fleshColor: #f59e0b, transmission 0.95, ior 1.42)
  * ============================================================ */
 export function buildPineappleRing() {
-  const geo = new THREE.TorusGeometry(1.15, 0.46, 26, 56);
-  geo.scale(1, 1, 0.82);
-  const mat = jellyMaterial('#ffffff', {
-    map: pineappleTexture(),
-    transmission: 0.92,
-    thickness: 2.1,
-    roughness: 0.12,
+  const geo = createPineappleRingGeometry();
+  const tex = createPineappleRadialTexture();
+
+  const mat = jellyMaterial('#fffbeb', {
+    map: tex,
+    baseColor: '#fffbeb',
+    transmission: 0.95,
+    thickness: 2.3,
+    roughness: 0.05,
     ior: 1.42,
-    attenuation: '#d97706',
-    attenuationDistance: 1.1,
+    attenuation: '#f59e0b',
+    attenuationDistance: 1.15,
     clearcoat: 1.0,
-    dispersion: 0.048
+    clearcoatRoughness: 0.02,
+    dispersion: 0.052
   });
+
   const mesh = new THREE.Mesh(geo, mat);
-  mesh.rotation.x = Math.PI / 2 - 0.18;
-  return { mesh, fleshColor: '#cf8f0e', followers: [], restY: 0.1 };
+  mesh.frustumCulled = false;
+  return { mesh, fleshColor: '#f59e0b', followers: [], restY: 0.06 };
 }
 
 /* ============================================================
- * 03 🧸 软糖小熊
+ * 03 🧸 软糖小熊 (圆滚滚萌趣造型 + 晶莹橙黄果冻胶质感)
+ * 1. 造型：圆滚滚大头 + Q 萌小圆耳 (内耳浅窝) + 凸起萌吻 + 饱满肉肚腩 + 敦实坐姿小短爪
+ * 2. 质感：晶莹橙黄果冻胶 (transmission 0.96, ior 1.41, clearcoat 1.0, 晶莹微色散)
+ * 3. 表情：黑亮晶莹小眼睛 + 萌萌小鼻尖，随软体物理自然抖动
  * ============================================================ */
-export function buildGummyBear(color = '#f6911f') {
-  const parts = [];
-  const add = (g, x, y, z, sx = 1, sy = 1, sz = 1) => {
-    g.scale(sx, sy, sz);
-    g.translate(x, y, z);
-    parts.push(g);
-  };
-  add(new THREE.SphereGeometry(0.85, 22, 18), 0, -0.35, 0, 1, 1.12, 0.82);
-  add(new THREE.SphereGeometry(0.55, 20, 16), 0, 0.72, 0, 1, 1, 0.85);
-  add(new THREE.SphereGeometry(0.22, 12, 10), -0.42, 1.12, 0, 1, 1, 0.8);
-  add(new THREE.SphereGeometry(0.22, 12, 10), 0.42, 1.12, 0, 1, 1, 0.8);
-  add(new THREE.SphereGeometry(0.3, 12, 10), -0.72, -0.5, 0, 1, 1.25, 0.75);
-  add(new THREE.SphereGeometry(0.3, 12, 10), 0.72, -0.5, 0, 1, 1.25, 0.75);
-  add(new THREE.SphereGeometry(0.32, 12, 10), -0.34, -1.12, 0, 1, 1.1, 0.75);
-  add(new THREE.SphereGeometry(0.32, 12, 10), 0.34, -1.12, 0, 1, 1.1, 0.75);
+export function buildGummyBear(color = '#f97316') {
+  const geo = createGummyBearGeometry();
 
+  const mat = jellyMaterial('#fff7ed', {
+    baseColor: '#fff7ed',
+    transmission: 0.96,
+    thickness: 2.6,
+    roughness: 0.05,
+    ior: 1.41,
+    attenuation: color,
+    attenuationDistance: 1.05,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.02,
+    dispersion: 0.050
+  });
+
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.frustumCulled = false;
+
+  const followers = createGummyBearFace();
+
+  return { mesh, fleshColor: color, followers, restY: 0.0 };
+}
+
+/* ============================================================
+ * 04 🎲 果冻骰子 (严格对齐殿下要求：Q 弹圆角立方体 + 真实点数凹陷 + 摇一摇稳定对齐)
+ * ============================================================ */
+export function buildDice(colorId = 'white') {
+  const geo = createRoundedCubeGeometry();
+  
+  // 晶莹透亮温润白玉果冻材质 (高透光、高折射率、清亮温润)
+  let baseColor = '#ffffff';
+  let attColor = '#f59e0b'; // 暖金果冻透光
+  if (colorId === 'green') {
+    baseColor = '#ecfdf5';
+    attColor = '#059669'; // 清透翡翠
+  } else if (colorId === 'pink') {
+    baseColor = '#fff1f2';
+    attColor = '#f43f5e'; // 蜜桃果冻
+  }
+
+  const mat = jellyMaterial(baseColor, {
+    baseColor,
+    transmission: 0.96,
+    thickness: 2.8,
+    roughness: 0.04,
+    ior: 1.42,
+    attenuation: attColor,
+    attenuationDistance: 1.45,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.02,
+    dispersion: 0.055
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.frustumCulled = false;
+
+  // 严格点数凹陷 (Indented Pips: 1点朱红半球凹坑，2~6点深炭黑半球凹坑，相对面之和为7)
+  const pipItems = createDicePipIndentMeshes();
+  const followers = pipItems.map(p => ({
+    mesh: p.mesh,
+    restPos: p.restPos,
+    faceNum: p.faceNum
+  }));
+
+  return { mesh, fleshColor: attColor, followers, restY: 0.35, isDice: true };
+}
+
+/* ============================================================
+ * 05 🍊 橘子切切 (严格对齐 shot-026.png)
+ * 1. 饱满圆润厚切橘瓣几何体 (带柔和圆角倒角)
+ * 2. 橙黄半透明果肉 + 真实白色经络 (橘络主脉与网状分叉白丝)
+ * 3. 严格对齐 8 段切片月牙排布，支持各自物理联动与大菜刀斩落！
+ * ============================================================ */
+export function buildOrange(colorId = 'orange') {
+  let baseColor = '#fff7ed';
+  let attColor = '#ea580c';
+  if (colorId === 'grapefruit') {
+    attColor = '#f43f5e';
+  } else if (colorId === 'lemon') {
+    attColor = '#eab308';
+  }
+
+  // 白色经络（橘络）高精度贴图 (1024x1024)
+  const pithTex = createOrangePithTexture();
+
+  const mat = jellyMaterial(baseColor, {
+    map: pithTex,
+    baseColor,
+    transmission: 0.94,
+    thickness: 2.2,
+    roughness: 0.05,
+    ior: 1.41,
+    attenuation: attColor,
+    attenuationDistance: 1.15,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.025,
+    dispersion: 0.052
+  });
+
+  // 严格对齐 shot-026.png 的 8 段橘子切片组合
+  // 每段均为圆润厚切橘瓣，沿月牙弧排列
+  const sliceCount = 8;
+  const arcRadius = 2.45;
+  const startAngle = -0.72;
+  const endAngle = 0.72;
+
+  // 构建由 8 段厚切切片组合而成的完整几何体（并保留各切片独立参数以供多段联动）
+  const parts = [];
+  const sliceTransforms = [];
+
+  for (let s = 0; s < sliceCount; s++) {
+    const t = s / (sliceCount - 1);
+    const angle = startAngle + t * (endAngle - startAngle);
+    // 两端略小略薄、中间饱满厚实 (对齐 shot-026 形状)
+    const factor = 1.0 - 0.32 * Math.pow((t - 0.5) * 2, 2);
+    const w = 0.86 * factor;
+    const h = 1.28 * factor;
+    const th = 0.30;
+
+    const sliceGeom = createOrangeSliceGeometry(w, h, th);
+    // 旋转切片使其法向沿月牙放射方向
+    sliceGeom.rotateY(-angle);
+
+    // 沿月牙弧排列，微留 0.03 间隙
+    const px = Math.sin(angle) * arcRadius;
+    const pz = (Math.cos(angle) - 1.0) * arcRadius * 0.75;
+    const py = 0.02;
+    sliceGeom.translate(px, py, pz);
+
+    sliceTransforms.push({ px, py, pz, angle, factor, s });
+    parts.push(sliceGeom);
+  }
+
+  // 合并为单体主网格 (用于初始揉捏与物理晶格绑定)
   let vTotal = 0, iTotal = 0;
-  parts.forEach(g => { vTotal += g.attributes.position.count; iTotal += g.index.count; });
+  parts.forEach(g => {
+    vTotal += g.attributes.position.count;
+    iTotal += g.index.count;
+  });
+
   const pos = new Float32Array(vTotal * 3);
   const nor = new Float32Array(vTotal * 3);
   const uv = new Float32Array(vTotal * 2);
   const idx = new (vTotal > 65535 ? Uint32Array : Uint16Array)(iTotal);
+
   let vo = 0, io = 0;
   parts.forEach(g => {
     const n = g.attributes.position.count;
@@ -265,122 +410,30 @@ export function buildGummyBear(color = '#f6911f') {
     uv.set(g.attributes.uv.array, vo * 2);
     const gi = g.index.array;
     for (let i = 0; i < gi.length; i++) idx[io + i] = gi[i] + vo;
-    vo += n; io += gi.length;
-  });
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
-  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-  geo.setIndex(new THREE.BufferAttribute(idx, 1));
-
-  const mat = jellyMaterial('#fff8db', {
-    transmission: 0.96,
-    thickness: 2.2,
-    roughness: 0.10,
-    attenuation: color,
-    attenuationDistance: 0.95,
-    clearcoat: 1.0,
-    clearcoatRoughness: 0.04,
-    dispersion: 0.050
-  });
-  const mesh = new THREE.Mesh(geo, mat);
-
-  const followers = [];
-  const eyeGeo = new THREE.SphereGeometry(0.075, 10, 8);
-  const eyeMat = new THREE.MeshStandardMaterial({ color: 0x3d1c0b, roughness: 0.2 });
-  [[-0.2, 0.78, 0.62], [0.2, 0.78, 0.62]].forEach(([ex, ey, ez]) => {
-    const m = new THREE.Mesh(eyeGeo, eyeMat);
-    followers.push({ mesh: m, restPos: [ex, ey, ez] });
+    vo += n;
+    io += gi.length;
+    g.dispose();
   });
 
-  return { mesh, fleshColor: color, followers, restY: 0 };
-}
+  const mergedGeom = new THREE.BufferGeometry();
+  mergedGeom.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  mergedGeom.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  mergedGeom.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  mergedGeom.setIndex(new THREE.BufferAttribute(idx, 1));
+  mergedGeom.computeVertexNormals();
 
-/* ============================================================
- * 04 🎲 果冻骰子 (Masterpiece 圆角刚柔方块)
- * ============================================================ */
-const DICE_PIPS = {
-  1: [[0, 0]],
-  2: [[-1, -1], [1, 1]],
-  3: [[-1, -1], [0, 0], [1, 1]],
-  4: [[-1, -1], [1, -1], [-1, 1], [1, 1]],
-  5: [[-1, -1], [1, -1], [0, 0], [-1, 1], [1, 1]],
-  6: [[-1, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [1, 1]],
-};
+  const mesh = new THREE.Mesh(mergedGeom, mat);
+  mesh.frustumCulled = false;
 
-export function buildDice(face = 5) {
-  const geo = createRoundedCubeGeometry();
-  const mat = jellyMaterial('#ecfdf5', {
-    transmission: 0.98,
-    thickness: 2.6,
-    roughness: 0.08,
-    attenuation: '#059669',
-    attenuationDistance: 0.95,
-    clearcoat: 1.0,
-    clearcoatRoughness: 0.03,
-    dispersion: 0.052
-  });
-  const mesh = new THREE.Mesh(geo, mat);
-
-  const followers = [];
-  const pipGeo = new THREE.SphereGeometry(0.10, 12, 10);
-  const pipMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.15 });
-  const H = 0.925;
-  const faces = [
-    { n: [0, 0, 1], u: [1, 0, 0], v: [0, 1, 0] },
-    { n: [0, 0, -1], u: [-1, 0, 0], v: [0, 1, 0] },
-    { n: [1, 0, 0], u: [0, 0, -1], v: [0, 1, 0] },
-    { n: [-1, 0, 0], u: [0, 0, 1], v: [0, 1, 0] },
-    { n: [0, 1, 0], u: [1, 0, 0], v: [0, 0, -1] },
-    { n: [0, -1, 0], u: [1, 0, 0], v: [0, 0, 1] },
-  ];
-  const faceNums = [1, 6, 2, 5, 3, 4];
-  faces.forEach((f, fi) => {
-    const pips = DICE_PIPS[faceNums[fi]];
-    pips.forEach(([px, py]) => {
-      const tx = f.n[0] * H + f.u[0] * px * 0.44 + f.v[0] * py * 0.44;
-      const ty = f.n[1] * H + f.u[1] * px * 0.44 + f.v[1] * py * 0.44;
-      const tz = f.n[2] * H + f.u[2] * px * 0.44 + f.v[2] * py * 0.44;
-      const m = new THREE.Mesh(pipGeo, pipMat);
-      followers.push({ mesh: m, restPos: [tx, ty, tz] });
-    });
-  });
-
-  return { mesh, fleshColor: '#059669', followers, restY: 0.35 };
-}
-
-/* ============================================================
- * 05 🍊 橘子瓣
- * ============================================================ */
-export function buildOrange() {
-  const R = 1.95;
-  const shape = new THREE.Shape();
-  shape.moveTo(0, -1.1);
-  shape.absarc(0, -1.1, R, Math.PI * 1.15, Math.PI * 1.85, false);
-  shape.lineTo(0, -1.1);
-  const geo = new THREE.ExtrudeGeometry(shape, {
-    depth: 0.8,
-    bevelEnabled: true,
-    bevelThickness: 0.28,
-    bevelSize: 0.24,
-    bevelSegments: 3,
-    curveSegments: 26,
-  });
-  geo.center();
-
-  const mat = jellyMaterial('#fff7ed', {
-    transmission: 0.96,
-    thickness: 2.2,
-    roughness: 0.08,
-    attenuation: '#ea580c',
-    attenuationDistance: 0.8,
-    clearcoat: 1.0,
-    clearcoatRoughness: 0.04,
-    dispersion: 0.048
-  });
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.rotation.x = -0.12;
-  return { mesh, fleshColor: '#ea580c', followers: [], restY: 0 };
+  return {
+    mesh,
+    fleshColor: attColor,
+    followers: [],
+    restY: 0,
+    isOrange: true,
+    sliceCount: 8,
+    sliceTransforms
+  };
 }
 
 /* ============================================================
@@ -442,3 +495,34 @@ export function buildMoldShape(kind, color = '#f68c1f') {
   mesh.rotation.x = -0.1;
   return { mesh, fleshColor: color, followers: [], restY: 0 };
 }
+
+/* ============================================================
+ * 08 🥮 月柔 · 冰皮月饼捏捏 (严格对齐殿下最新参考截图 SOFT MOON)
+ * 1. 顶面：八瓣宝相花/莲花立体浮雕压纹 (真实 3D 几何起伏，中央花蕊环+8瓣舒展莲瓣+祥云外缘)
+ * 2. 侧面：20 齿圆润波浪裙边 (Fluted Rim，每个齿圆润饱满，上下 Fillet 倒角)
+ * 3. 绝美三层垂直渐变色：顶层鲜荔枝玫瑰粉 (#f43f5e) ➔ 中层奶黄落日橙 (#fde047) ➔ 底层与边缘冰白微蓝玉光 (Opal / Fresnel)
+ * 4. 5 种风味支持：玫瑰芭乐、落日橙、冰川海盐、开心果抹茶、芋泥啵啵
+ * ============================================================ */
+export function buildMooncake(flavorKey = 'rose_guava') {
+  const geo = createMooncakeGeometry();
+
+  // 应用三层垂直渐变色 (顶点颜色平滑过渡)
+  applyMooncakeGradientColors(geo, flavorKey);
+
+  // 创建欧泊玉光材质 (Opal / Fresnel 掠射角微蓝幻彩)
+  const { mat, flavor } = createMooncakeMaterial(flavorKey);
+
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.frustumCulled = false;
+
+  return {
+    mesh,
+    fleshColor: flavor.topColor,
+    followers: [],
+    restY: 0.02,
+    isMooncake: true,
+    flavorKey
+  };
+}
+
+

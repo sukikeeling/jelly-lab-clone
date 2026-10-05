@@ -10,7 +10,8 @@ import {
   buildDice,
   buildSquid,
   buildMelon,
-  buildMoldShape
+  buildMoldShape,
+  buildMooncake
 } from './fruits.js';
 
 const MELON_COLORS = [
@@ -39,29 +40,29 @@ export const GAMES = {
   },
   '02': {
     num: '02', name: '菠萝圈', script: 'A ring of sunshine', tag: '拉伸 · 翻面',
-    desc: '拉住内圈向外扯，松手看它回弹。', baseMass: 64,
+    desc: '金黄通透菠萝圈，放射状微肌理。拉住内圈向外扯，松手看它饱满回弹。', baseMass: 64,
     dataLabels: ['模拟质量', '体积保持', '运动能量'], dataUnits: ['克', '%', '微焦'],
-    tips: { main: '💡 <b>拉一拉</b> 按住菠萝圈向外扯，松手看它回弹。点「轻轻弹一下」戳它。' },
+    tips: { main: '💡 <b>拉一拉</b> 按住金黄通透菠萝圈向外扯，松手看它饱满回弹。点「轻轻弹一下」戳它。' },
     modes: [{ id: 'flick', name: '轻轻弹一下', icon: 'poke' }, { id: 'flip', name: '翻个面', icon: 'flip' }, { id: 'reset', name: '重来', icon: 'reset' }],
     actions: [{ id: 'pause', name: '⏸ 暂停' }, { id: 'recenter', name: '📐 回正视角' }],
     tabs: ['操作', '手感', '特效'],
     build: () => buildPineappleRing(),
   },
   '03': {
-    num: '03', name: '软糖小熊', script: 'A chewy little friend', tag: '捏捏 · 翻面',
-    desc: '捏捏小熊的脸，翻个面看看。', baseMass: 52,
+    num: '03', name: '软糖小熊', script: 'A chewy little friend', tag: '圆滚滚 · 捏捏',
+    desc: '圆滚滚萌趣小熊，晶莹橙黄果冻胶质感。捏捏小熊的脸，翻个面看看。', baseMass: 52,
     dataLabels: ['模拟质量', '体积保持', '运动能量'], dataUnits: ['克', '%', '微焦'],
-    tips: { main: '💡 <b>捏一捏</b> 按住小熊拖动拉伸，松手回弹。' },
+    tips: { main: '💡 <b>捏一捏</b> 按住圆滚滚小熊拖动拉伸，松手 Q 弹回弹，保体积不塌陷。' },
     modes: [{ id: 'pinch', name: '捏一捏', icon: 'hand' }, { id: 'flip', name: '翻个面', icon: 'flip' }],
     colors: [
-      { id: 'orange', name: '橙子熊', dot: '#f6911f' },
-      { id: 'straw', name: '草莓熊', dot: '#f78ba4' },
-      { id: 'lime', name: '青柠熊', dot: '#9ed65e' },
+      { id: 'orange', name: '橙子熊', dot: '#f97316' },
+      { id: 'straw', name: '草莓熊', dot: '#f43f5e' },
+      { id: 'lime', name: '青柠熊', dot: '#84cc16' },
     ], defaultColor: 'orange',
     actions: [{ id: 'shake', name: '晃一下', primary: true }, { id: 'reset', name: '↺ 重来' }, { id: 'pause', name: '⏸ 暂停' }],
     tabs: ['操作', '手感', '颜色', '特效'],
     build: (colorId) => {
-      const map = { orange: '#f6911f', straw: '#f78ba4', lime: '#9ed65e' };
+      const map = { orange: '#f97316', straw: '#f43f5e', lime: '#84cc16' };
       return buildGummyBear(map[colorId] || map.orange);
     },
   },
@@ -124,6 +125,35 @@ export const GAMES = {
     tabs: ['操作', '手感', '特效'],
     build: () => buildMelon(),
   },
+  '08': {
+    num: '08', name: '月柔 · 冰皮月饼捏捏', script: 'SOFT MOON · A piece of tender pastry', tag: '八瓣宝相花 · 渐变冰皮',
+    desc: '这手感，比刚出炉的软面包还上头。八瓣宝相莲花立体浮雕，20 齿圆润波浪裙边，三色渐变欧泊玉光。', baseMass: 95,
+    dataLabels: ['模拟质量', '体积保持', '运动能量'], dataUnits: ['克', '%', '微焦'],
+    tips: {
+      main: '💡 <b>轻点/长按</b> 按住月饼拖动拉捏，双指拉捏扭转；松手看绝美八瓣宝相莲花与欧泊玉光饱满回弹。'
+    },
+    modes: [
+      { id: 'pinch', name: '轻点/长按', icon: 'hand' },
+      { id: 'poke', name: '单指拖动', icon: 'poke' },
+      { id: 'flip', name: '双指拉捏', icon: 'flip' },
+    ],
+    colors: [
+      { id: 'rose_guava', name: '玫瑰芭乐', dot: 'linear-gradient(135deg, #f43f5e, #fde047, #e0f2fe)' },
+      { id: 'sunset_orange', name: '落日橙', dot: 'linear-gradient(135deg, #ea580c, #fbbf24, #fef3c7)' },
+      { id: 'glacier_salt', name: '冰川海盐', dot: 'linear-gradient(135deg, #0284c7, #38bdf8, #f0f9ff)' },
+      { id: 'pistachio_matcha', name: '开心果抹茶', dot: 'linear-gradient(135deg, #16a34a, #a3e635, #f0fdf4)' },
+      { id: 'taro_boba', name: '芋泥啵啵', dot: 'linear-gradient(135deg, #9333ea, #c084fc, #faf5ff)' },
+    ],
+    defaultColor: 'rose_guava',
+    actions: [
+      { id: 'shake', name: '晃一下', primary: true },
+      { id: 'reset', name: '↺ 重置' },
+      { id: 'recenter', name: '📐 回正视角' },
+      { id: 'pause', name: '⏸ 暂停' },
+    ],
+    tabs: ['操作', '手感', '颜色', '特效'],
+    build: (flavorKey) => buildMooncake(flavorKey),
+  },
 };
 
-export const GAME_ORDER = ['01', '02', '03', '04', '05', '06', '07'];
+export const GAME_ORDER = ['01', '02', '03', '04', '05', '06', '07', '08'];

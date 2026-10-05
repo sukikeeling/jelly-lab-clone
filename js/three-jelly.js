@@ -1,6 +1,6 @@
 /* ============================================================
  * three-jelly.js — Three.js 顶级透光果冻引擎
- * 120Hz XPBD 晶格 + 384 四面体体积守恒 + MeshPhysicalMaterial 色散透光
+ * 稳健 60FPS / 60Hz XPBD 晶格 + 384 四面体体积守恒 + MeshPhysicalMaterial 色散透光
  * ============================================================ */
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
@@ -185,8 +185,8 @@ export function jellyMaterial(color, opts = {}) {
 }
 
 /* ============================================================
- * JellyBody — 满血 XPBD 果冻刚柔体对象
- * 120Hz 亚步长物理驱动、384 四面体保体积、支持从属网格与动态触手
+ * JellyBody — 稳健 60FPS / 60Hz XPBD 果冻刚柔体对象
+ * 60Hz 亚步长物理驱动、384 四面体保体积、支持从属网格与动态触手
  * ============================================================ */
 export class JellyBody {
   constructor(mesh, opts = {}) {
@@ -196,7 +196,7 @@ export class JellyBody {
     this.cap = null;
     this.clips = [];
 
-    // 120Hz XPBD 软体晶格核心
+    // 60Hz XPBD 软体晶格核心
     this.physics = new JellyPhysicsXPBD({
       gridSize: 5,
       firmness: opts.firmness ?? 55,
@@ -332,8 +332,18 @@ export class JellyBody {
 
   dragTo(worldPt) {
     if (!this.physics.grab) return;
+    // 视锥安全包围盒截断，限制抓取目标在屏幕安全区域内
+    const safeWorld = new THREE.Vector3(
+      Math.max(-2.3, Math.min(2.3, worldPt.x)),
+      Math.max(0.12, Math.min(3.2, worldPt.y)),
+      Math.max(-1.9, Math.min(1.9, worldPt.z))
+    );
     const inv = new THREE.Matrix4().copy(this.group.matrixWorld).invert();
-    const lp = worldPt.clone().applyMatrix4(inv);
+    const lp = safeWorld.applyMatrix4(inv);
+    // 局部空间安全防拉爆锁
+    lp.x = Math.max(-2.2, Math.min(2.2, lp.x));
+    lp.y = Math.max(-0.9, Math.min(3.0, lp.y));
+    lp.z = Math.max(-2.2, Math.min(2.2, lp.z));
     this.physics.grab.target = [lp.x, lp.y, lp.z];
   }
 
@@ -368,22 +378,38 @@ export class JellyBody {
   syncSurfaces() {
     const p = this.physics.position;
 
-    // 1. 同步主模型顶点
+    // 1. 同步主模型顶点（支持位移场变形，保持原始几何轮廓绝对圆润不失真）
     if (this.mainBinding) {
-      const { geometry, bindings } = this.mainBinding;
+      const { geometry, bindings, origPositions, scale } = this.mainBinding;
       const attr = geometry.getAttribute('position');
+      const invScale = scale ? (1.0 / scale) : 1.0;
+      const pRest = this.physics.rest;
+      const useDisp = !!(origPositions && origPositions.length === attr.count * 3);
+
       for (let i = 0; i < attr.count; i++) {
         const b = bindings[i];
         if (!b) continue;
         const { indices, weights } = b;
-        let x = 0, y = 0, z = 0;
+        let dx = 0, dy = 0, dz = 0;
+        let px = 0, py = 0, pz = 0;
         for (let j = 0; j < 8; j++) {
           const idx = indices[j], w = weights[j];
-          x += p[idx] * w;
-          y += p[idx + 1] * w;
-          z += p[idx + 2] * w;
+          if (useDisp) {
+            dx += (p[idx] - pRest[idx]) * w;
+            dy += (p[idx + 1] - pRest[idx + 1]) * w;
+            dz += (p[idx + 2] - pRest[idx + 2]) * w;
+          } else {
+            px += p[idx] * w;
+            py += p[idx + 1] * w;
+            pz += p[idx + 2] * w;
+          }
         }
-        attr.setXYZ(i, x, y, z);
+        if (useDisp) {
+          const i3 = i * 3;
+          attr.setXYZ(i, origPositions[i3] + dx * invScale, origPositions[i3 + 1] + dy * invScale, origPositions[i3 + 2] + dz * invScale);
+        } else {
+          attr.setXYZ(i, px, py, pz);
+        }
       }
       attr.needsUpdate = true;
       geometry.computeVertexNormals();
@@ -391,22 +417,39 @@ export class JellyBody {
 
     // 2. 同步从属模型（如西瓜皮外壳）
     for (const item of this.secondaryBindings) {
-      const attr = item.geometry.getAttribute('position');
+      const { geometry, bindings, origPositions, scale } = item;
+      const attr = geometry.getAttribute('position');
+      const invScale = scale ? (1.0 / scale) : 1.0;
+      const pRest = this.physics.rest;
+      const useDisp = !!(origPositions && origPositions.length === attr.count * 3);
+
       for (let i = 0; i < attr.count; i++) {
-        const b = item.bindings[i];
+        const b = bindings[i];
         if (!b) continue;
         const { indices, weights } = b;
-        let x = 0, y = 0, z = 0;
+        let dx = 0, dy = 0, dz = 0;
+        let px = 0, py = 0, pz = 0;
         for (let j = 0; j < 8; j++) {
           const idx = indices[j], w = weights[j];
-          x += p[idx] * w;
-          y += p[idx + 1] * w;
-          z += p[idx + 2] * w;
+          if (useDisp) {
+            dx += (p[idx] - pRest[idx]) * w;
+            dy += (p[idx + 1] - pRest[idx + 1]) * w;
+            dz += (p[idx + 2] - pRest[idx + 2]) * w;
+          } else {
+            px += p[idx] * w;
+            py += p[idx + 1] * w;
+            pz += p[idx + 2] * w;
+          }
         }
-        attr.setXYZ(i, x, y, z);
+        if (useDisp) {
+          const i3 = i * 3;
+          attr.setXYZ(i, origPositions[i3] + dx * invScale, origPositions[i3 + 1] + dy * invScale, origPositions[i3 + 2] + dz * invScale);
+        } else {
+          attr.setXYZ(i, px, py, pz);
+        }
       }
       attr.needsUpdate = true;
-      item.geometry.computeVertexNormals();
+      geometry.computeVertexNormals();
     }
 
     // 3. 同步嵌入跟随物（西瓜籽、骰子圆点等）
@@ -480,14 +523,14 @@ export class JellyBody {
     }
   }
 
-  // 120Hz 亚步长物理模拟循环更新
+  // 严格锁定 60FPS 平稳丝滑物理模拟循环更新
   update(dt, time) {
     if (this.paused) return;
 
-    const fixedDT = 1 / 120;
+    const fixedDT = 1 / 60;
     this.accumulator += Math.min(dt, 0.05) * (this.slow ? 0.25 : 1.0);
     let steps = 0;
-    while (this.accumulator >= fixedDT && steps < 6) {
+    while (this.accumulator >= fixedDT && steps < 2) {
       this.physics.step(fixedDT);
       this.accumulator -= fixedDT;
       steps++;

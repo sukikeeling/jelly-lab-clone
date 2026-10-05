@@ -265,18 +265,35 @@ export class JellyPhysicsXPBD {
     }
     cx /= this.count; cy /= this.count; cz /= this.count;
 
-    // Air drag & gentle centering boundary
-    const airDrag = Math.exp(-0.15 * h);
-    for (let i = 0; i < p.length; i += 3) {
-      // Gentle centering force keeping jelly inside play arena
-      v[i]     = (v[i] - cx * 0.6 * h) * airDrag;
-      v[i + 1] = (v[i + 1] - 9.81 * h) * airDrag; // gravity
-      v[i + 2] = (v[i + 2] - cz * 0.6 * h) * airDrag;
+    // 极端异常熔断保护：数值 NaN 或极端远离中心，强制平滑重置至屏幕中央
+    const distHorizCenter = Math.hypot(cx, cz);
+    if (Number.isNaN(cx) || distHorizCenter > 3.6 || cy > 4.5 || cy < -0.5) {
+      for (let i = 0; i < p.length; i += 3) {
+        p[i] = this.rest[i] * 0.95;
+        p[i + 1] = this.rest[i + 1] + 0.85;
+        p[i + 2] = this.rest[i + 2] * 0.95;
+        v[i] = 0; v[i + 1] = -0.3; v[i + 2] = 0;
+      }
+      cx = 0; cy = 0.85; cz = 0;
+    }
 
-      // Speed clamp for safety
+    // 视锥安全向心力与丝滑吸回系统
+    const airDrag = Math.exp(-0.20 * h);
+    const pullHoriz = distHorizCenter > 0.65 ? Math.min(22.0, (distHorizCenter - 0.5) * 16.0) : 0;
+    const nx = distHorizCenter > 1e-5 ? (cx / distHorizCenter) : 0;
+    const nz = distHorizCenter > 1e-5 ? (cz / distHorizCenter) : 0;
+    const pullTop = cy > 2.2 ? (cy - 1.2) * 14.0 : 0;
+
+    for (let i = 0; i < p.length; i += 3) {
+      // 丝滑弹性向心恢复力 + 重力
+      v[i]     = (v[i] - nx * pullHoriz * h) * airDrag;
+      v[i + 1] = (v[i + 1] - (9.81 + pullTop) * h) * airDrag;
+      v[i + 2] = (v[i + 2] - nz * pullHoriz * h) * airDrag;
+
+      // 严格速度硬截断（Speed Clamp）彻底杜绝数值飞车
       const spd = Math.hypot(v[i], v[i + 1], v[i + 2]);
-      if (spd > 26) {
-        const factor = 26 / spd;
+      if (spd > 12.0) {
+        const factor = 12.0 / spd;
         v[i] *= factor; v[i + 1] *= factor; v[i + 2] *= factor;
       }
 
@@ -384,25 +401,45 @@ export class JellyPhysicsXPBD {
         }
       }
 
-      // 4. Ground Collision & Boundary limits
+      // 4. Ground Collision & Camera Frustum Safety Bounding Clamping
+      const B_MIN_X = -2.35, B_MAX_X = 2.35;
+      const B_MIN_Z = -2.05, B_MAX_Z = 2.05;
+      const B_MAX_Y = 3.35;
       for (let i = 0; i < p.length; i += 3) {
-        p[i + 1] = Math.max(this.floorY, p[i + 1]); // Floor height
-        p[i]     = Math.max(-4.0, Math.min(4.0, p[i]));
-        p[i + 2] = Math.max(-4.0, Math.min(4.0, p[i + 2]));
+        p[i + 1] = Math.max(this.floorY, Math.min(B_MAX_Y, p[i + 1]));
+        p[i]     = Math.max(B_MIN_X, Math.min(B_MAX_X, p[i]));
+        p[i + 2] = Math.max(B_MIN_Z, Math.min(B_MAX_Z, p[i + 2]));
       }
     }
 
-    // Velocity update & Ground friction
+    // Velocity update, Boundary Bounce & Ground friction
     let totalVx = 0, totalVy = 0, totalVz = 0;
+    const B_MIN_X = -2.35, B_MAX_X = 2.35;
+    const B_MIN_Z = -2.05, B_MAX_Z = 2.05;
+    const B_MAX_Y = 3.35;
     for (let i = 0; i < p.length; i += 3) {
       for (let k = 0; k < 3; k++) {
         v[i + k] = (p[i + k] - this.previous[i + k]) / h;
       }
-      // Floor friction and inelastic bounce
+      // 触碰边界时的丝滑弹性反弹与动能吸收 (Boundary Elastic Bounce)
+      if (p[i] <= B_MIN_X + 0.002 && v[i] < 0) {
+        v[i] = -v[i] * 0.42;
+      } else if (p[i] >= B_MAX_X - 0.002 && v[i] > 0) {
+        v[i] = -v[i] * 0.42;
+      }
+      if (p[i + 2] <= B_MIN_Z + 0.002 && v[i + 2] < 0) {
+        v[i + 2] = -v[i + 2] * 0.42;
+      } else if (p[i + 2] >= B_MAX_Z - 0.002 && v[i + 2] > 0) {
+        v[i + 2] = -v[i + 2] * 0.42;
+      }
+      if (p[i + 1] >= B_MAX_Y - 0.002 && v[i + 1] > 0) {
+        v[i + 1] = -v[i + 1] * 0.35;
+      }
+      // 地面摩擦与微弱 Q 弹吸附
       if (p[i + 1] <= this.floorY + 0.001) {
-        v[i]     *= 0.92;
-        v[i + 2] *= 0.92;
-        v[i + 1] = Math.max(0, v[i + 1]);
+        v[i]     *= 0.90;
+        v[i + 2] *= 0.90;
+        v[i + 1] = Math.max(0, -v[i + 1] * 0.22);
       }
       totalVx += v[i];
       totalVy += v[i + 1];

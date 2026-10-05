@@ -1,5 +1,5 @@
 /* ============================================================
- * app.js — 果冻实验室：路由、首页、游戏页、交互与满血 120Hz XPBD
+ * app.js — 果冻实验室：路由、首页、游戏页、交互与稳健 60FPS / 60Hz XPBD
  * ============================================================ */
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
@@ -178,10 +178,10 @@ async function renderHome() {
     </div>
     <div class="home-head">
       <h1>果冻实验室</h1>
-      <div class="script">Jelly Lab · 满血 3D XPBD 版</div>
+      <div class="script">Jelly Lab · 稳健 3D XPBD 版</div>
     </div>
     <div class="home-sub">
-      <p>捏一捏，切一切。<br>120Hz 晶格体积守恒，把时间放慢一点。</p>
+      <p>捏一捏，切一切。<br>稳健 60Hz 晶格体积守恒，把时间放慢一点。</p>
       <button class="sound-pill" id="home-sound">🎵 声音设置 ＞</button>
     </div>
     <div class="hero-card" id="hero-card">
@@ -271,11 +271,11 @@ function renderMe() {
     <div class="profile-card">
       <div class="avatar">🍮</div>
       <h3>软乎乎实验员</h3>
-      <p style="color:var(--ink2);font-size:13px;margin-top:6px">把时间放慢一点 · 满血 120Hz XPBD</p>
+      <p style="color:var(--ink2);font-size:13px;margin-top:6px">把时间放慢一点 · 稳健 60FPS / 60Hz XPBD</p>
       <div class="stat-row">
         <div><b>${S.playCount}</b><span>解压次数</span></div>
         <div><b>${S.favs.size}</b><span>收藏</span></div>
-        <div><b>7</b><span>实验室</span></div>
+        <div><b>8</b><span>实验室</span></div>
       </div>
     </div>
     <div class="profile-card" style="text-align:left">
@@ -295,6 +295,7 @@ const HELP_COPY = {
   '05': `<p>🍊 <b>揉捏</b>：按住果冻拉伸，双指扭转，拖空白处旋转视角。</p><p>🔪 <b>切一刀</b>：划线、落刀，橘子分成小块。</p><p>⭐ <b>形状模具</b>：星星、圆形、爱心，一秒换形。</p>`,
   '06': `<p>🦑 <b>戳一戳</b>：点触小鱿鱼，深色发光内核与大眼睛随波荡漾，8 根柔韧触手连续动态摆动！</p>`,
   '07': `<p>🍉 <b>加一根橡皮筋</b>：每点一下，多一根皮筋勒住西瓜。看看它能撑住几根？</p>`,
+  '08': `<p>🥮 <b>月柔 · 冰皮月饼捏捏</b>：这手感，比刚出炉的软面包还上头！顶面八瓣宝相莲花立体浮雕，侧面 20 齿圆润波浪裙边。</p><p>✨ <b>绝美渐变与欧泊玉光</b>：顶层鲜荔枝玫瑰粉，中层奶黄落日橙，底层与边缘泛出如梦如幻的冰白微蓝欧泊玉光！</p><p>🎨 <b>风味随心换</b>：玫瑰芭乐、落日橙、冰川海盐、开心果抹茶、芋泥啵啵，五味曼妙。</p>`,
 };
 function openHelp(gameId) {
   $('#help-body').innerHTML = HELP_COPY[gameId] || '<p>捏一捏，切一切，把时间放慢一点。</p>';
@@ -337,7 +338,7 @@ function gameHTML(g) {
 
   return `
   <div class="topbar">
-    <button class="back-btn" id="g-back">${icon('back', 18)} 返回系列</button>
+    <button class="back-btn" id="g-back">${icon('back', 18)} 返回</button>
     <div class="title"><h1>${g.name}</h1><div class="en">Jelly Lab · XPBD</div></div>
     <div style="display:flex;gap:10px">
       <button class="icon-btn" id="g-user">${icon('user', 20)}</button>
@@ -354,7 +355,7 @@ function gameHTML(g) {
     <canvas id="overlay" class="cut-hint"></canvas>
   </div>
   <div class="status-row">
-    <span class="live">● 120Hz 物理在线</span>
+    <span class="live">● 60Hz 稳健物理在线</span>
     ${g.cutCount ? '<span id="cut-count">已切成 1 块</span>' : (g.rubber ? '<span id="band-top"><b style="font-size:18px">0</b> 根橡皮皮筋</span>' : '<span></span>')}
   </div>
   <div class="data-bar" id="data-bar">
@@ -542,13 +543,31 @@ function setupStage(id) {
   bindPointer(canvas, overlay, id);
   applyCam();
 
-  // 120Hz XPBD 渲染与更新主循环
+  // 全系统严格锁定稳健的 60FPS / 60Hz 物理步进与渲染主循环
   const clock = new THREE.Clock();
   let statT = 0;
-  const loop = () => {
+  let lastFrameTime = performance.now();
+  const TARGET_FPS = 60;
+  const FRAME_INTERVAL = 1000 / TARGET_FPS; // 16.6667ms
+  let frameAccumulator = 0;
+
+  const loop = (now) => {
     S.raf = requestAnimationFrame(loop);
-    const dt = Math.min(clock.getDelta(), 0.033);
-    const t = clock.elapsedTime;
+    const deltaMs = Math.min(now - lastFrameTime, 100);
+    lastFrameTime = now;
+    frameAccumulator += deltaMs;
+
+    // 高刷屏节流锁帧：未达 60FPS 帧间隔时直接跳过渲染，稳稳锁定 60Hz
+    if (frameAccumulator < FRAME_INTERVAL * 0.90) {
+      return;
+    }
+
+    // 严格锁定 60Hz 物理定长步长 (dt = 1 / 60 ≈ 0.01667s)
+    const dt = 1 / TARGET_FPS;
+    frameAccumulator -= FRAME_INTERVAL;
+    if (frameAccumulator > FRAME_INTERVAL * 2) frameAccumulator = 0;
+
+    const t = clock.getElapsedTime();
     if (!S.paused) {
       for (const j of S.jellies) j.update(dt, t);
       updateSpecials(id, dt, t);
@@ -588,7 +607,7 @@ function setupStage(id) {
     statT += dt;
     if (statT > 0.15) { statT = 0; updateDataBar(id); }
   };
-  loop();
+  S.raf = requestAnimationFrame(loop);
   updateDataBar(id);
 }
 
@@ -727,7 +746,14 @@ function bindPointer(canvas, overlay, id) {
     stage.camera.getWorldDirection(n);
     const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(n, depthRef);
     const out = new THREE.Vector3();
-    return ray.ray.intersectPlane(plane, out) ? out : null;
+    if (ray.ray.intersectPlane(plane, out)) {
+      // 视锥安全包围盒裁剪锁，绝对禁止拖拽目标飞出屏幕
+      out.x = clamp(out.x, -2.3, 2.3);
+      out.y = clamp(out.y, 0.12, 3.2);
+      out.z = clamp(out.z, -1.9, 1.9);
+      return out;
+    }
+    return null;
   }
 
   canvas.addEventListener('pointerdown', e => {
@@ -976,6 +1002,11 @@ function updateDice(dt) {
   sp.vel.y -= 13 * dt;
   sp.angVel.multiplyScalar(Math.pow(0.25, dt));
   sp.vel.x *= Math.pow(0.5, dt); sp.vel.z *= Math.pow(0.5, dt);
+
+  // 骰子防弹飞速度与高度截断锁
+  const spd = sp.vel.length();
+  if (spd > 9.5) sp.vel.multiplyScalar(9.5 / spd);
+
   g.position.addScaledVector(sp.vel, dt);
   _e.set(sp.angVel.x * dt, sp.angVel.y * dt, sp.angVel.z * dt);
   _dq.setFromEuler(_e);
@@ -988,8 +1019,18 @@ function updateDice(dt) {
     sp.vel.x *= 0.72; sp.vel.z *= 0.72;
     sp.angVel.multiplyScalar(0.62);
   }
-  if (Math.abs(g.position.x) > 2.2) { g.position.x = Math.sign(g.position.x) * 2.2; sp.vel.x *= -0.6; }
-  if (Math.abs(g.position.z) > 1.6) { g.position.z = Math.sign(g.position.z) * 1.6; sp.vel.z *= -0.6; }
+  if (g.position.y > 2.8) {
+    g.position.y = 2.8;
+    sp.vel.y = -Math.abs(sp.vel.y) * 0.45;
+  }
+  if (Math.abs(g.position.x) > 2.1) {
+    g.position.x = Math.sign(g.position.x) * 2.1;
+    sp.vel.x = -Math.sign(g.position.x) * Math.abs(sp.vel.x) * 0.55;
+  }
+  if (Math.abs(g.position.z) > 1.5) {
+    g.position.z = Math.sign(g.position.z) * 1.5;
+    sp.vel.z = -Math.sign(g.position.z) * Math.abs(sp.vel.z) * 0.55;
+  }
 
   const sp2 = sp.vel.length(), sa = sp.angVel.length();
   const onFloor = g.position.y <= sp.floorY + 0.05;
@@ -1027,7 +1068,20 @@ function addBand() {
   if (!sp || sp.type !== 'rubber') return;
   const j = S.jellies[0]; if (!j) return;
   const n = sp.bands.length;
-  if (n >= 24) { toast('已经 24 根啦！西瓜表示压力很大 🍉💦'); return; }
+  if (n >= 24) {
+    // 达到承受极限，触发橡皮筋崩断与西瓜爆裂 ASMR 顶级解压！
+    JellySound.explode();
+    j.shake(3.0);
+    spawnStrands(j, 20);
+    sp.bands.forEach(b => { b.mesh.parent && b.mesh.parent.remove(b.mesh); });
+    sp.bands = [];
+    j.group.scale.y = 1.0;
+    const bt = $('#band-top'); if (bt) bt.innerHTML = '<b style="font-size:18px">0</b> 根橡皮皮筋';
+    const bn = $('#band-num'); if (bn) bn.textContent = '0';
+    toast('💥 砰！西瓜爆开啦！汁水四溅，超级解压～');
+    updateDataBar(S.gameId);
+    return;
+  }
   const mat = new THREE.MeshStandardMaterial({ color: n % 2 ? 0xc9a06a : 0xd94f3d, roughness: 0.55 });
   const band = new THREE.Mesh(new THREE.TorusGeometry(1.92, 0.06, 10, 48), mat);
   band.rotation.x = Math.PI / 2 + (Math.random() - 0.5) * 0.55;
