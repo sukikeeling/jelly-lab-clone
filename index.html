@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>果冻实验室 Jelly Lab</title>
+<link rel="stylesheet" href="css/style.css">
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three/three.module.js",
+    "three/addons/": "./vendor/three/addons/"
+  }
+}
+</script>
+<!-- Three.js r160 本地 vendor（无外网依赖）；GSAP 本项目未使用 -->
+</head>
+<body>
+<div id="app">
+  <!-- 首页 -->
+  <section class="page" id="page-home"></section>
+  <!-- 游戏页 -->
+  <section class="page" id="page-game"></section>
+  <!-- 收藏页 -->
+  <section class="page" id="page-favs"></section>
+  <!-- 我的页 -->
+  <section class="page" id="page-me"></section>
+
+  <!-- 底部导航 -->
+  <nav class="tabbar" id="tabbar">
+    <button data-nav="home"><span class="ti">🏠</span>首页</button>
+    <button data-nav="favs"><span class="ti">♡</span>收藏</button>
+    <button data-nav="lab"><span class="ti">🧪</span>实验室</button>
+    <button data-nav="me"><span class="ti">👤</span>我的</button>
+  </nav>
+
+  <!-- 怎么玩？弹窗 -->
+  <div class="modal-mask" id="modal-help">
+    <div class="modal">
+      <h3>怎么玩？</h3>
+      <div id="help-body"></div>
+      <div class="foot"><button class="btn" id="help-close">知道了，去解压</button></div>
+    </div>
+  </div>
+
+  <!-- 声音设置弹窗 -->
+  <div class="modal-mask" id="modal-sound">
+    <div class="modal">
+      <h3>♫ 声音设置</h3>
+      <div class="switch-row"><span>ASMR 音效</span><button class="switch on" id="sw-sound"></button></div>
+      <div class="slider-row"><label>音量 <b id="vol-val">80%</b></label>
+        <input type="range" id="vol-range" min="0" max="100" value="80">
+      </div>
+      <p style="color:var(--ink2);font-size:13px">捏是挤压声，切是脆裂声，晃是水波声。<br>把时间放慢一点，听果冻的声音。</p>
+      <div class="foot"><button class="btn" id="sound-close">完成</button></div>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+  <div id="webgl-fail" style="display:none" class="empty-tip">😢 当前设备不支持 WebGL，<br>果冻实验室需要 WebGL 才能开玩。</div>
+</div>
+
+<script src="js/audio.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
