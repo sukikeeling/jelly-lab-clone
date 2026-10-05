@@ -107,20 +107,38 @@ export class JellyPhysicsXPBD {
   }
 
   initTentacles() {
-    // 8 tentacles around the bottom ring of the squid
+    // 8 tentacles: 6 short undulating arms + 2 long feeding tentacles with paddle clubs
     this.tentacles = [];
     const count = 8;
-    const segCount = 6;
-    const segLength = 0.28;
+
+    // Tentacle angular layout (radians)
+    // 0..5: 6 short arms radiating around the perimeter
+    // 6..7: 2 long feeding tentacles extending forward/downwards
+    const tentacleAngles = [
+      -Math.PI * 0.78,
+      -Math.PI * 0.52,
+      -Math.PI * 0.22,
+       Math.PI * 0.22,
+       Math.PI * 0.52,
+       Math.PI * 0.78,
+      -Math.PI * 0.45, // Long Tentacle 1
+       Math.PI * 0.45  // Long Tentacle 2
+    ];
 
     for (let t = 0; t < count; t++) {
-      const angle = (t / count) * Math.PI * 2;
-      const radius = 0.72;
+      const isLong = (t >= 6);
+      const angle = tentacleAngles[t];
+      const radius = isLong ? 0.42 : 0.62;
       const rootRestX = Math.cos(angle) * radius;
-      const rootRestY = -0.95; // bottom of lattice
+      const rootRestY = -0.76; // bottom of squid mantle lattice
       const rootRestZ = Math.sin(angle) * radius;
 
+      const segCount = isLong ? 14 : 8;
+      const segLength = isLong ? 0.16 : 0.14;
+
       const chain = {
+        index: t,
+        isLong,
         angle,
         rootEmbedding: this.embed(rootRestX, rootRestY, rootRestZ),
         particles: [], // [{ pos: [x,y,z], prev: [x,y,z], vel: [x,y,z] }]
@@ -129,8 +147,9 @@ export class JellyPhysicsXPBD {
 
       for (let s = 0; s < segCount; s++) {
         const py = rootRestY - s * segLength;
-        const px = rootRestX + Math.cos(angle) * s * 0.05;
-        const pz = rootRestZ + Math.sin(angle) * s * 0.05;
+        const spread = isLong ? (s * 0.03) : (Math.sin(s * 0.5) * 0.08);
+        const px = rootRestX + Math.cos(angle) * spread;
+        const pz = rootRestZ + Math.sin(angle) * spread;
         chain.particles.push({
           pos: [px, py + 1.8, pz],
           prev: [px, py + 1.8, pz],
@@ -166,9 +185,10 @@ export class JellyPhysicsXPBD {
         const rootPos = this.evaluateEmbedding(chain.rootEmbedding);
         for (let s = 0; s < chain.particles.length; s++) {
           const pt = chain.particles[s];
-          pt.pos[0] = rootPos[0] + Math.cos(chain.angle) * s * 0.06;
+          const spread = chain.isLong ? (s * 0.03) : (Math.sin(s * 0.5) * 0.06);
+          pt.pos[0] = rootPos[0] + Math.cos(chain.angle) * spread;
           pt.pos[1] = rootPos[1] - s * chain.segLength;
-          pt.pos[2] = rootPos[2] + Math.sin(chain.angle) * s * 0.06;
+          pt.pos[2] = rootPos[2] + Math.sin(chain.angle) * spread;
           pt.prev[0] = pt.pos[0];
           pt.prev[1] = pt.pos[1];
           pt.prev[2] = pt.pos[2];

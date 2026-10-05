@@ -29,7 +29,7 @@ const S = {
   throws: 0,
   stage: null,
   raf: 0,
-  cam: { theta: 0, phi: 1.15, r: 7.2, tx: 0, ty: 0.9, tz: 0 },
+  cam: { theta: 0, phi: 1.12, r: 5.6, tx: 0, ty: 0.62, tz: 0 },
   camHome: null,
   favs: new Set(JSON.parse(localStorage.getItem('jelly-favs') || '[]')),
   playCount: parseInt(localStorage.getItem('jelly-plays') || '0'),
@@ -524,6 +524,8 @@ function setupStage(id) {
   try {
     stage = createStage(canvas);
   } catch (e) {
+    console.error('CRITICAL createStage ERROR:', e);
+    window.__STAGE_ERR__ = e.stack || e.message;
     $('#webgl-fail').style.display = 'block';
     return;
   }

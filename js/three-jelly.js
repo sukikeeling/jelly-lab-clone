@@ -13,17 +13,21 @@ const V3 = (x=0,y=0,z=0) => new THREE.Vector3(x,y,z);
 export function buildStudioEnvironment(renderer) {
   const environment = new RoomEnvironment();
   const panelGeom = new THREE.PlaneGeometry(1, 1);
-  const panelMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(7, 7, 7), side: THREE.DoubleSide });
+  const createdMats = [];
 
-  // 3 块高光摄影棚柔光箱
+  // 5 块专业高亮摄影棚长条柔光箱 (Softbox Highlight Strips)
   const panels = [
-    { pos: [-3.5, 4.5, 2.5], scale: [1.6, 4.5, 1] },
-    { pos: [3.8, 4.2, -3.2], scale: [3.0, 3.5, 1] },
-    { pos: [0.0, 6.5, 0.0],  scale: [3.5, 2.8, 1] }
+    { pos: [-3.8, 4.6, 2.8], scale: [1.2, 5.5, 1], color: new THREE.Color(8.5, 8.5, 8.5) }, // 左前长条垂直柔光箱
+    { pos: [4.2, 4.5, 2.5],  scale: [1.2, 5.0, 1], color: new THREE.Color(8.0, 8.0, 8.0) }, // 右前长条柔光箱
+    { pos: [0.0, 7.2, 0.2],  scale: [4.5, 2.2, 1], color: new THREE.Color(7.5, 7.5, 7.5) }, // 顶部长矩形天幕柔光箱
+    { pos: [3.2, 3.5, -3.5], scale: [3.2, 3.2, 1], color: new THREE.Color(5.0, 5.2, 6.0) }, // 后方冷光轮廓箱
+    { pos: [-3.2, 2.2, -3.0],scale: [2.5, 2.5, 1], color: new THREE.Color(4.5, 4.0, 3.8) }  // 后方暖光轮廓箱
   ];
 
   for (const p of panels) {
-    const mesh = new THREE.Mesh(panelGeom, panelMat);
+    const mat = new THREE.MeshBasicMaterial({ color: p.color, side: THREE.DoubleSide });
+    createdMats.push(mat);
+    const mesh = new THREE.Mesh(panelGeom, mat);
     mesh.position.set(...p.pos);
     mesh.scale.set(...p.scale);
     mesh.lookAt(0, 0, 0);
@@ -35,7 +39,7 @@ export function buildStudioEnvironment(renderer) {
 
   environment.dispose();
   panelGeom.dispose();
-  panelMat.dispose();
+  createdMats.forEach(m => m.dispose());
   pmrem.dispose();
 
   return envTexture;
@@ -434,9 +438,10 @@ export class JellyBody {
         const attr = line.geom.getAttribute('position');
         const rest = line.restPos;
         const segCount = chain.particles.length;
+        const len = line.length || 1.2;
 
         for (let i = 0; i < attr.count; i++) {
-          const rawY = Math.max(0, Math.min(1.0, -rest[i * 3 + 1] / 1.2));
+          const rawY = Math.max(0, Math.min(1.0, -rest[i * 3 + 1] / len));
           const segIdx = Math.max(0, Math.min(segCount - 2, Math.floor(rawY * (segCount - 1))));
           const segT = (rawY * (segCount - 1)) - segIdx;
 
@@ -453,6 +458,24 @@ export class JellyBody {
         }
         attr.needsUpdate = true;
         line.geom.computeVertexNormals();
+
+        // 动态同步触须表面的吸盘颗粒
+        if (line.suckersGroup && line.suckersGroup.children.length) {
+          const children = line.suckersGroup.children;
+          for (let c = 0; c < children.length; c++) {
+            const cup = children[c];
+            const frac = line.isLongTentacle ? (0.76 + ((c + 1) / (children.length + 1)) * 0.22) : (0.2 + ((c + 1) / (children.length + 1)) * 0.75);
+            const segIdx = Math.max(0, Math.min(segCount - 2, Math.floor(frac * (segCount - 1))));
+            const segT = (frac * (segCount - 1)) - segIdx;
+            const pA = chain.particles[segIdx].pos;
+            const pB = chain.particles[segIdx + 1].pos;
+
+            const cx = pA[0] + (pB[0] - pA[0]) * segT;
+            const cy = pA[1] + (pB[1] - pA[1]) * segT;
+            const cz = pA[2] + (pB[2] - pA[2]) * segT;
+            cup.position.set(cx, cy, cz + (line.isLongTentacle ? 0.045 : 0.038));
+          }
+        }
       }
     }
   }

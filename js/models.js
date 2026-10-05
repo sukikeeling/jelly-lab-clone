@@ -1,6 +1,6 @@
 /* ============================================================
  * models.js — 顶级 Three.js 建模系统
- * 🍉 100% 对照 target-watermelon.jpg & shot-010.png 饱满圆角扇形西瓜（三层结构+手绘条纹+水滴黑籽）
+ * 🍉 100% 对照 target-watermelon.png & shot-010.png 饱满圆角扇形西瓜（三层结构+手绘条纹+水滴黑籽）
  * 🦑 100% 对照 shot-006.png 果冻鱿鱼（外套膜+展开肉鳍+黑亮萌眼白高光+6短触须吸盘+2长触腕勺掌）
  * ============================================================ */
 import * as THREE from 'three';
@@ -10,26 +10,26 @@ import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 export const FLAVOR_PRESETS = {
   watermelon: {
     name: '经典红瓜果肉',
-    color: '#ffe4e6',
-    attenuationColor: '#be123c',
-    attenuationDistance: 0.68,
+    color: '#ff4d6d',
+    attenuationColor: '#e11d48',
+    attenuationDistance: 1.55,
     ior: 1.40,
-    roughness: 0.06,
-    thickness: 2.6,
+    roughness: 0.04,
+    thickness: 2.2,
     clearcoat: 1.0,
-    clearcoatRoughness: 0.025,
+    clearcoatRoughness: 0.02,
     dispersion: 0.058
   },
   squid_peach: {
-    name: '桃粉果冻鱿鱼',
-    color: '#fff1ee',
-    attenuationColor: '#b93822',
-    attenuationDistance: 0.82,
+    name: '粉橘肉粉果冻鱿鱼 (原版)',
+    color: '#ffedd5',
+    attenuationColor: '#f43f5e',
+    attenuationDistance: 1.35,
     ior: 1.39,
-    roughness: 0.06,
-    thickness: 2.3,
+    roughness: 0.04,
+    thickness: 2.0,
     clearcoat: 1.0,
-    clearcoatRoughness: 0.03,
+    clearcoatRoughness: 0.025,
     dispersion: 0.052
   },
   squid_cyan: {
@@ -38,7 +38,7 @@ export const FLAVOR_PRESETS = {
     attenuationColor: '#0284c7',
     attenuationDistance: 0.85,
     ior: 1.37,
-    roughness: 0.07,
+    roughness: 0.06,
     thickness: 2.4,
     clearcoat: 1.0,
     clearcoatRoughness: 0.03,
@@ -50,7 +50,7 @@ export const FLAVOR_PRESETS = {
     attenuationColor: '#d97706',
     attenuationDistance: 1.05,
     ior: 1.42,
-    roughness: 0.10,
+    roughness: 0.09,
     thickness: 2.3,
     clearcoat: 1.0,
     clearcoatRoughness: 0.04,
@@ -62,7 +62,7 @@ export const FLAVOR_PRESETS = {
     attenuationColor: '#be123c',
     attenuationDistance: 0.85,
     ior: 1.40,
-    roughness: 0.09,
+    roughness: 0.08,
     thickness: 2.2,
     clearcoat: 1.0,
     clearcoatRoughness: 0.03,
@@ -74,7 +74,7 @@ export const FLAVOR_PRESETS = {
     attenuationColor: '#059669',
     attenuationDistance: 1.1,
     ior: 1.38,
-    roughness: 0.08,
+    roughness: 0.07,
     thickness: 2.2,
     clearcoat: 1.0,
     clearcoatRoughness: 0.03,
@@ -92,19 +92,19 @@ export function createPhysicalJellyMaterial(flavorKeyOrOpts = 'watermelon') {
 
   const mat = new THREE.MeshPhysicalMaterial({
     color: new THREE.Color(config.color || '#ffe4e6'),
-    roughness: config.roughness ?? 0.06,
+    roughness: config.roughness ?? 0.05,
     metalness: 0.0,
     transmission: config.transmission ?? 0.96,
-    thickness: config.thickness ?? 2.6,
+    thickness: config.thickness ?? 2.8,
     ior: config.ior ?? 1.40,
     attenuationColor: new THREE.Color(config.attenuationColor || '#be123c'),
-    attenuationDistance: config.attenuationDistance ?? 0.68,
+    attenuationDistance: config.attenuationDistance ?? 0.65,
     clearcoat: config.clearcoat ?? 1.0,
-    clearcoatRoughness: config.clearcoatRoughness ?? 0.025,
+    clearcoatRoughness: config.clearcoatRoughness ?? 0.02,
     dispersion: config.dispersion ?? 0.058,
     side: config.side ?? THREE.FrontSide,
   });
-  mat.envMapIntensity = config.envMapIntensity ?? 1.35;
+  mat.envMapIntensity = config.envMapIntensity ?? 1.38;
   return mat;
 }
 
@@ -137,39 +137,57 @@ export function bindGeometryToPhysics(geometry, physics, scale = 1.0, offset = n
 }
 
 /* ============================================================
+ * 🍉 西瓜统一几何系统常数与变换矩阵
+ * 确保果肉、果皮、过渡层、水滴籽 100% 同轴严丝合缝对齐
+ * ============================================================ */
+const MELON_PARAMS = {
+  radius: 1.58,           // 扇形半径
+  halfAngle: Math.PI / 6, // 30 degrees (总夹角 60°)
+  tipRadius: 0.20,        // 尖端极其圆润的圆角
+  cornerRadius: 0.16,     // 外角平滑圆角
+  depth: 0.68,            // 饱满厚度
+  bevel: 0.12,            // 饱满倒角
+  centerY: 0.92,          // 几何中心对齐
+  centerZ: 0.34,
+  // 严格对齐 target-watermelon.jpg & shot-010.png：
+  // 翠绿波浪外弧面展现在左前至正前方，尖端在右后方，顶面红肉与切面完美展现
+  viewRotY: Math.PI * 0.82
+};
+
+function applyMelonTransform(geom) {
+  geom.translate(0, -MELON_PARAMS.centerY, -MELON_PARAMS.centerZ);
+  geom.rotateX(-Math.PI * 0.5); // lay flat: thickness is along Y
+  geom.rotateY(MELON_PARAMS.viewRotY);
+}
+
+/* ============================================================
  * 🍉 1. 西瓜切块 (Watermelon Slice)
  * 严格对齐 target-watermelon.png & shot-010.png：
  * - 60° 扇形圆角块（非锐角），所有棱角极圆润饱满（Fillet Bevel）
  * - 像一颗厚实晶莹的果冻橡皮糖平放在台面上
  * ============================================================ */
 export function createWatermelonGeometry() {
+  const { radius, halfAngle, tipRadius, cornerRadius, depth, bevel } = MELON_PARAMS;
   const shape = new THREE.Shape();
-  const radius = 1.45;
-  const halfAngle = Math.PI / 6; // 30 degrees (total 60 degrees wedge)
-  const tipRadius = 0.18;        // 尖端平滑圆角倒角
-  const cornerRadius = 0.14;     // 两侧切面与外弧交汇处的平滑圆角
-
-  // 尖端内切圆圆心（位于沿对称轴方向）
   const dTip = tipRadius / Math.sin(halfAngle);
   
-  // 尖端圆与左右两条射线的切点
   const tRightX = tipRadius * Math.cos(halfAngle);
   const tRightY = dTip - tipRadius * Math.sin(halfAngle);
   const tLeftX = -tipRadius * Math.cos(halfAngle);
   const tLeftY = dTip - tipRadius * Math.sin(halfAngle);
 
-  // 1. 从左切点开始，绘制尖端的圆滑倒角
+  // 1. 尖端圆滑圆弧 (无锐角)
   shape.moveTo(tLeftX, tLeftY);
   shape.absarc(0, dTip, tipRadius, Math.PI + halfAngle, Math.PI * 2 - halfAngle, true);
 
-  // 2. 沿右侧切面直线向外延伸至外转角前
+  // 2. 右侧切面直线
   const rayEndX = radius * Math.sin(halfAngle);
   const rayEndY = radius * Math.cos(halfAngle);
   const pCornerRayX = rayEndX - cornerRadius * Math.sin(halfAngle);
   const pCornerRayY = rayEndY - cornerRadius * Math.cos(halfAngle);
   shape.lineTo(pCornerRayX, pCornerRayY);
 
-  // 3. 右外角平滑过渡倒角
+  // 3. 右外角过渡圆角
   const arcRightAngle = Math.PI * 0.5 - halfAngle + 0.08;
   const arcRightX = radius * Math.cos(arcRightAngle);
   const arcRightY = radius * Math.sin(arcRightAngle);
@@ -178,32 +196,27 @@ export function createWatermelonGeometry() {
   // 4. 外侧大圆弧
   shape.absarc(0, 0, radius, arcRightAngle, Math.PI * 0.5 + halfAngle - 0.08, false);
 
-  // 5. 左外角平滑过渡倒角
+  // 5. 左外角过渡圆角
   const rayLeftEndX = -radius * Math.sin(halfAngle);
   const rayLeftEndY = radius * Math.cos(halfAngle);
   const pLeftRayX = rayLeftEndX + cornerRadius * Math.sin(halfAngle);
   const pLeftRayY = rayLeftEndY - cornerRadius * Math.cos(halfAngle);
   shape.quadraticCurveTo(rayLeftEndX, rayLeftEndY, pLeftRayX, pLeftRayY);
 
-  // 6. 沿左侧切面引回左切点闭合
+  // 6. 沿左侧切面引回左切点
   shape.lineTo(tLeftX, tLeftY);
 
-  // Extrude with rich fillet bevels
   const extrudeSettings = {
-    depth: 0.58,
+    depth,
     bevelEnabled: true,
-    bevelThickness: 0.11,
-    bevelSize: 0.11,
+    bevelThickness: bevel,
+    bevelSize: bevel,
     bevelSegments: 5,
     curveSegments: 18
   };
 
   const geom = new THREE.ExtrudeGeometry(shape, extrudeSettings);
-  geom.center();
-  // Lay flat on ground: Y is height (top surface pointing up +Y, outer rind facing front +Z)
-  geom.rotateX(-Math.PI * 0.5);
-  // Center slightly forward so tip is back and outer arc faces front
-  geom.translate(0, 0, 0.05);
+  applyMelonTransform(geom);
 
   geom.deleteAttribute('normal');
   const welded = mergeVertices(geom, 0.001);
@@ -214,47 +227,40 @@ export function createWatermelonGeometry() {
 
 /* ============================================================
  * 🍉 2. 侧面弧边果皮 (Watermelon Outer Rind Geometry)
- * 严格覆盖在外侧大圆弧及左右转角，边缘圆润包裹
+ * 严格同轴覆盖在外侧大圆弧及左右转角，边缘圆润包裹
  * ============================================================ */
 export function createWatermelonRindGeometry() {
-  const radialSegments = 40;
-  const heightSegments = 12;
-  const radius = 1.455;
-  const halfAngle = Math.PI / 6 + 0.09; // cover outer arc and corners
-  const height = 0.78; // matches extruded melon thickness with bevels
-
+  const { radius, halfAngle, depth, bevel } = MELON_PARAMS;
   const geom = new THREE.BufferGeometry();
-  const positions = [];
-  const uvs = [];
-  const indices = [];
+  const rSteps = 42, hSteps = 12;
+  const positions = [], uvs = [], indices = [];
 
-  for (let j = 0; j <= heightSegments; j++) {
-    const v = j / heightSegments; // 0 (bottom) to 1 (top)
-    const y = (v - 0.5) * height;
+  for (let j = 0; j <= hSteps; j++) {
+    const v = j / hSteps; // 0 to 1 along thickness
+    const z = -bevel + v * (depth + 2 * bevel);
 
     // Bevel curl at top and bottom edges (inward curl like natural rind)
     const edgeDist = Math.min(v, 1.0 - v);
-    const curl = edgeDist < 0.15 ? Math.cos((edgeDist / 0.15) * Math.PI * 0.5) * 0.045 : 0;
-    const r = radius - curl;
+    const curl = edgeDist < 0.16 ? Math.cos((edgeDist / 0.16) * Math.PI * 0.5) * 0.038 : 0;
+    const curR = radius + bevel * 0.88 + 0.015 - curl; // slightly proud to avoid Z-fighting
 
-    for (let i = 0; i <= radialSegments; i++) {
-      const u = i / radialSegments; // 0 to 1 along curve
-      const angle = (Math.PI * 0.5) + (u - 0.5) * (halfAngle * 2.0);
-
-      const x = -Math.cos(angle) * r;
-      const z = Math.sin(angle) * r - 0.58; // aligned with centered watermelon
+    for (let i = 0; i <= rSteps; i++) {
+      const u = i / rSteps;
+      const angle = (Math.PI * 0.5 + halfAngle - 0.06) - u * ((halfAngle - 0.06) * 2.0);
+      const x = Math.cos(angle) * curR;
+      const y = Math.sin(angle) * curR;
 
       positions.push(x, y, z);
       uvs.push(u, v);
     }
   }
 
-  for (let j = 0; j < heightSegments; j++) {
-    for (let i = 0; i < radialSegments; i++) {
-      const a = j * (radialSegments + 1) + i;
-      const b = (j + 1) * (radialSegments + 1) + i;
-      const c = (j + 1) * (radialSegments + 1) + (i + 1);
-      const d = j * (radialSegments + 1) + (i + 1);
+  for (let j = 0; j < hSteps; j++) {
+    for (let i = 0; i < rSteps; i++) {
+      const a = j * (rSteps + 1) + i;
+      const b = (j + 1) * (rSteps + 1) + i;
+      const c = (j + 1) * (rSteps + 1) + (i + 1);
+      const d = j * (rSteps + 1) + (i + 1);
       indices.push(a, b, d);
       indices.push(b, c, d);
     }
@@ -263,6 +269,7 @@ export function createWatermelonRindGeometry() {
   geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geom.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   geom.setIndex(indices);
+  applyMelonTransform(geom);
   geom.computeVertexNormals();
   return geom;
 }
@@ -270,46 +277,40 @@ export function createWatermelonRindGeometry() {
 /* ============================================================
  * 🍉 3. 白绿过渡层 (Watermelon Pith Layer Geometry)
  * 严格对齐要求：在深绿瓜皮与红瓤之间，必须有一圈清晰的奶白至浅绿过渡带（Pith，厚度约 0.08~0.12）
- * 覆盖在顶面/底面外侧倒角外缘及侧面交界处
+ * 紧贴瓜皮内侧，并在顶面与底面边缘清晰露出白绿过渡带
  * ============================================================ */
 export function createWatermelonPithGeometry() {
-  const radialSegments = 40;
-  const widthSegments = 6;
-  const radius = 1.45;
-  const halfAngle = Math.PI / 6 + 0.085;
-  const pithThickness = 0.11; // 0.11 thickness
-  const height = 0.76;
-
-  // We build a composite band that wraps the outer top/bottom bevel and inner boundary
+  const { radius, halfAngle, depth, bevel } = MELON_PARAMS;
   const geom = new THREE.BufferGeometry();
-  const positions = [];
-  const uvs = [];
-  const indices = [];
+  const rSteps = 42, wSteps = 6;
+  const positions = [], uvs = [], indices = [];
+
+  const pithThickness = 0.12;
+  const outerR = radius + bevel * 0.78 + 0.010;
 
   // Top pith ribbon (visible from top view and sides)
-  for (let j = 0; j <= widthSegments; j++) {
-    const w = j / widthSegments; // 0 (outer rind boundary) to 1 (inner flesh boundary)
-    const curR = radius - w * pithThickness;
-    const curY = 0.38 - Math.pow(w, 1.2) * 0.04; // follows top surface bevel
+  for (let j = 0; j <= wSteps; j++) {
+    const w = j / wSteps; // 0 (outer green edge) to 1 (inner flesh boundary)
+    const curR = outerR - w * pithThickness;
+    const z = (depth + bevel + 0.008) - Math.pow(w, 1.2) * 0.038;
 
-    for (let i = 0; i <= radialSegments; i++) {
-      const u = i / radialSegments;
-      const angle = (Math.PI * 0.5) + (u - 0.5) * (halfAngle * 2.0);
+    for (let i = 0; i <= rSteps; i++) {
+      const u = i / rSteps;
+      const angle = (Math.PI * 0.5 + halfAngle - 0.06) - u * ((halfAngle - 0.06) * 2.0);
+      const x = Math.cos(angle) * curR;
+      const y = Math.sin(angle) * curR;
 
-      const x = -Math.cos(angle) * curR;
-      const z = Math.sin(angle) * curR - 0.58;
-
-      positions.push(x, curY, z);
-      uvs.push(w, u); // w is gradient from green rind to white pith to red pulp
+      positions.push(x, y, z);
+      uvs.push(w, u);
     }
   }
 
-  for (let j = 0; j < widthSegments; j++) {
-    for (let i = 0; i < radialSegments; i++) {
-      const a = j * (radialSegments + 1) + i;
-      const b = (j + 1) * (radialSegments + 1) + i;
-      const c = (j + 1) * (radialSegments + 1) + (i + 1);
-      const d = j * (radialSegments + 1) + (i + 1);
+  for (let j = 0; j < wSteps; j++) {
+    for (let i = 0; i < rSteps; i++) {
+      const a = j * (rSteps + 1) + i;
+      const b = (j + 1) * (rSteps + 1) + i;
+      const c = (j + 1) * (rSteps + 1) + (i + 1);
+      const d = j * (rSteps + 1) + (i + 1);
       indices.push(a, b, d);
       indices.push(b, c, d);
     }
@@ -317,29 +318,28 @@ export function createWatermelonPithGeometry() {
 
   // Bottom pith ribbon
   const baseOffset = positions.length / 3;
-  for (let j = 0; j <= widthSegments; j++) {
-    const w = j / widthSegments;
-    const curR = radius - w * pithThickness;
-    const curY = -0.38 + Math.pow(w, 1.2) * 0.04;
+  for (let j = 0; j <= wSteps; j++) {
+    const w = j / wSteps;
+    const curR = outerR - w * pithThickness;
+    const z = -bevel - 0.008 + Math.pow(w, 1.2) * 0.038;
 
-    for (let i = 0; i <= radialSegments; i++) {
-      const u = i / radialSegments;
-      const angle = (Math.PI * 0.5) + (u - 0.5) * (halfAngle * 2.0);
+    for (let i = 0; i <= rSteps; i++) {
+      const u = i / rSteps;
+      const angle = (Math.PI * 0.5 + halfAngle - 0.06) - u * ((halfAngle - 0.06) * 2.0);
+      const x = Math.cos(angle) * curR;
+      const y = Math.sin(angle) * curR;
 
-      const x = -Math.cos(angle) * curR;
-      const z = Math.sin(angle) * curR - 0.58;
-
-      positions.push(x, curY, z);
+      positions.push(x, y, z);
       uvs.push(w, u);
     }
   }
 
-  for (let j = 0; j < widthSegments; j++) {
-    for (let i = 0; i < radialSegments; i++) {
-      const a = baseOffset + j * (radialSegments + 1) + i;
-      const b = baseOffset + (j + 1) * (radialSegments + 1) + i;
-      const c = baseOffset + (j + 1) * (radialSegments + 1) + (i + 1);
-      const d = baseOffset + j * (radialSegments + 1) + (i + 1);
+  for (let j = 0; j < wSteps; j++) {
+    for (let i = 0; i < rSteps; i++) {
+      const a = baseOffset + j * (rSteps + 1) + i;
+      const b = baseOffset + (j + 1) * (rSteps + 1) + i;
+      const c = baseOffset + (j + 1) * (rSteps + 1) + (i + 1);
+      const d = baseOffset + j * (rSteps + 1) + (i + 1);
       indices.push(a, d, b);
       indices.push(b, d, c);
     }
@@ -348,12 +348,14 @@ export function createWatermelonPithGeometry() {
   geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geom.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   geom.setIndex(indices);
+  applyMelonTransform(geom);
   geom.computeVertexNormals();
   return geom;
 }
 
 /* ============================================================
  * 🍉 4. 西瓜皮手绘条纹与白绿过渡贴图生成器
+ * 翠绿底色 (#2e7d3a) + 手绘感深绿波浪条纹 (#144d20)
  * ============================================================ */
 export function createMelonStripeTexture() {
   const width = 1024, height = 512;
@@ -384,10 +386,9 @@ export function createMelonStripeTexture() {
 
   for (let i = 0; i < stripeCount; i++) {
     const cx = ((i + 0.5) / stripeCount) * width;
-    const w = 34 + (i % 3) * 6; // stripe width
+    const w = 36 + (i % 3) * 6; // stripe width
 
     ctx.beginPath();
-    // Hand-drawn wavy curves with natural jiggle
     const wave1 = (i % 2 === 0 ? 1 : -1) * 28;
     const wave2 = (i % 2 === 0 ? -1 : 1) * 22;
 
@@ -458,74 +459,71 @@ export function createMelonPithTexture() {
  * 严格对齐要求：上表面错落分布水滴形黑亮西瓜籽，带高光点
  * ============================================================ */
 export function createSeedMeshes(count = 10) {
-  // Teardrop seed shape: tapered tip, plump bulbous base, flattened cross-section
-  const seedGeom = new THREE.SphereGeometry(0.05, 14, 12);
+  const seedGeom = new THREE.SphereGeometry(0.048, 14, 12);
   const pos = seedGeom.getAttribute('position');
   for (let i = 0; i < pos.count; i++) {
     let x = pos.getX(i);
     let y = pos.getY(i);
     let z = pos.getZ(i);
 
-    // Taper top (+Y) into teardrop point
-    const ny = (y / 0.05 + 1.0) * 0.5; // 0 to 1
+    const ny = (y / 0.048 + 1.0) * 0.5;
     const taper = 0.35 + 0.65 * (1.0 - ny * 0.75);
     x *= taper;
-    z *= taper * 0.42; // Flatten cross-section
-    y *= 1.45;         // Elongate length
+    z *= taper * 0.45;
+    y *= 1.45;
 
     pos.setXYZ(i, x, y, z);
   }
   seedGeom.computeVertexNormals();
 
-  // Jet black glossy obsidian seed material
   const seedMat = new THREE.MeshStandardMaterial({
     color: '#0e0f12',
     roughness: 0.08,
     metalness: 0.35
   });
 
-  // Highlight dot on seed surface
   const dotGeom = new THREE.SphereGeometry(0.012, 8, 6);
   const dotMat = new THREE.MeshBasicMaterial({ color: '#ffffff' });
 
   const seeds = [];
-  // Carefully scattered on upper watermelon flesh surface
-  // Radii between 0.40 and 1.15, angles within wedge, staying away from rind
   const seedConfigs = [
-    { r: 0.52, angle: -0.15, rot: 0.25 },
-    { r: 0.85, angle: -0.21, rot: -0.32 },
-    { r: 1.08, angle: -0.14, rot: 0.18 },
-    { r: 0.68, angle:  0.03, rot: -0.12 },
-    { r: 0.95, angle:  0.05, rot: 0.22 },
-    { r: 1.16, angle:  0.02, rot: -0.15 },
-    { r: 0.58, angle:  0.18, rot: 0.35 },
-    { r: 0.88, angle:  0.22, rot: -0.28 },
-    { r: 1.12, angle:  0.16, rot: 0.14 },
-    { r: 0.42, angle: -0.05, rot: -0.18 }
+    { r: 0.58, angle: -0.15, rot: 0.25 },
+    { r: 0.92, angle: -0.20, rot: -0.32 },
+    { r: 1.18, angle: -0.12, rot: 0.18 },
+    { r: 0.72, angle:  0.03, rot: -0.12 },
+    { r: 1.02, angle:  0.05, rot: 0.22 },
+    { r: 1.25, angle:  0.02, rot: -0.15 },
+    { r: 0.64, angle:  0.18, rot: 0.35 },
+    { r: 0.96, angle:  0.22, rot: -0.28 },
+    { r: 1.22, angle:  0.15, rot: 0.14 },
+    { r: 0.48, angle: -0.05, rot: -0.18 }
   ];
 
-  const topY = 0.405; // rested on upper surface of watermelon slice
+  const { depth, bevel, centerY, centerZ, viewRotY } = MELON_PARAMS;
+  const rawZ = depth + bevel * 0.95; // upper surface
 
   for (let i = 0; i < Math.min(count, seedConfigs.length); i++) {
     const { r, angle, rot } = seedConfigs[i];
     const mesh = new THREE.Mesh(seedGeom, seedMat);
 
-    // Position in XZ plane
-    const wx = -Math.cos((Math.PI * 0.5) + angle) * r;
-    const wz = Math.sin((Math.PI * 0.5) + angle) * r - 0.58;
+    const angleFromY = Math.PI * 0.5 - angle;
+    const rawX = Math.cos(angleFromY) * r;
+    const rawY = Math.sin(angleFromY) * r;
 
-    mesh.position.set(wx, topY, wz);
-    // Point seed tip inward towards melon center, with slight organic tilt
-    mesh.rotation.y = angle + rot;
-    mesh.rotation.x = -Math.PI * 0.5 + 0.12; // laying flat with slight upward angle
-    mesh.rotation.z = rot * 0.5;
+    const p = new THREE.Vector3(rawX, rawY - centerY, rawZ - centerZ);
+    p.applyAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI * 0.5);
+    p.applyAxisAngle(new THREE.Vector3(0, 1, 0), viewRotY);
 
-    // Specular highlight dot
+    mesh.position.copy(p);
+    mesh.rotation.y = viewRotY - angle + rot;
+    mesh.rotation.x = 0.08;
+    mesh.rotation.z = rot * 0.4;
+
     const dot = new THREE.Mesh(dotGeom, dotMat);
     dot.position.set(0.015, -0.01, 0.025);
     mesh.add(dot);
 
-    seeds.push({ mesh, restPos: [wx, topY, wz] });
+    seeds.push({ mesh, restPos: [p.x, p.y, p.z] });
   }
 
   return seeds;
@@ -540,7 +538,7 @@ export function createSeedMeshes(count = 10) {
 export function createSquidGeometry() {
   const radialSegments = 40;
   const heightSegments = 36;
-  const totalHeight = 1.62;
+  const totalH = 1.62;
 
   const geom = new THREE.BufferGeometry();
   const positions = [];
@@ -548,20 +546,19 @@ export function createSquidGeometry() {
   const indices = [];
 
   for (let j = 0; j <= heightSegments; j++) {
-    const v = j / heightSegments; // 0 (bottom skirt/tentacle anchor) to 1.0 (top apex)
-    const y = (v - 0.45) * totalHeight;
+    const v = j / heightSegments; // 0 (tentacle base at bottom -Y) to 1.0 (apex dome at top +Y)
+    const y = (v - 0.46) * totalH;
 
-    // 1. Teardrop body mantle baseline profile
-    // Plump waist in middle, tapering cone towards rounded apex
-    const bodyR = 0.52 * Math.sin(Math.PI * Math.pow(v, 0.72)) * (1.1 - 0.26 * v) + 0.08 * (1.0 - v);
+    // 1. Plump teardrop mantle body baseline profile
+    const bodyR = 0.52 * Math.sin(Math.PI * Math.pow(v, 0.70)) * (1.1 - 0.22 * v) + 0.08 * (1.0 - v);
 
     // 2. Pair of smooth triangular/diamond lateral fins (小翅膀)
-    // Wings situated near upper third (v in [0.36, 0.94]), peak span at v = 0.68
+    // Expanding laterally along X axis near upper section (v in [0.36, 0.92])
     let finSpan = 0;
-    if (v >= 0.36 && v <= 0.94) {
-      const fv = (v - 0.68) / 0.28;
+    if (v >= 0.36 && v <= 0.92) {
+      const fv = (v - 0.66) / 0.26;
       const finCurve = Math.max(0, 1.0 - fv * fv);
-      finSpan = 0.54 * Math.pow(finCurve, 1.5); // extended wingspan
+      finSpan = 0.54 * Math.pow(finCurve, 1.5);
     }
 
     for (let i = 0; i <= radialSegments; i++) {
@@ -571,14 +568,12 @@ export function createSquidGeometry() {
       const cosP = Math.cos(phi);
       const sinP = Math.sin(phi);
 
-      // Lateral wings smoothly deploy along X axis (cosP ~ +-1)
-      const finWeight = Math.pow(Math.abs(cosP), 3.4);
+      const finWeight = Math.pow(Math.abs(cosP), 3.2);
       const curFin = finSpan * finWeight;
 
       const x = (bodyR + curFin) * Math.sign(cosP);
-      // Hydrodynamic flattening on Z, thinning out at wingtips
-      const zThickness = 1.0 - 0.50 * (curFin / (0.54 + 1e-5));
-      const z = bodyR * sinP * zThickness * 0.88;
+      const zThickness = 1.0 - 0.48 * (curFin / (0.54 + 1e-5));
+      const z = bodyR * sinP * zThickness * 0.90;
 
       positions.push(x, y, z);
       uvs.push(u, v);
@@ -611,7 +606,7 @@ export function createSquidGeometry() {
 export function createSquidOrgans() {
   const group = new THREE.Group();
 
-  // 1. 发光桃粉果冻心脏/内核 (Soft bioluminescent core)
+  // 1. 发光桃粉果冻心脏/内核 (Bioluminescent Core)
   const coreGeom = new THREE.SphereGeometry(0.24, 20, 16);
   const coreMat = new THREE.MeshStandardMaterial({
     color: '#fb7185',
@@ -622,12 +617,12 @@ export function createSquidOrgans() {
     opacity: 0.75
   });
   const core = new THREE.Mesh(coreGeom, coreMat);
-  core.position.set(0, 0.05, 0);
+  core.position.set(0, -0.05, 0);
   group.add(core);
 
-  // 2. 黑曜石萌趣大眼珠 (Glossy Jet-Black Beads)
-  const eyeGeom = new THREE.SphereGeometry(0.11, 18, 14);
-  eyeGeom.scale(1.0, 1.25, 0.82);
+  // 2. 黑曜石萌趣大眼珠 (Glossy Jet-Black Beads) - 凸起于身体表面 (Z ~ 0.50)
+  const eyeGeom = new THREE.SphereGeometry(0.13, 18, 14);
+  eyeGeom.scale(1.0, 1.25, 0.85);
   const eyeMat = new THREE.MeshStandardMaterial({
     color: '#090a0d',
     roughness: 0.04,
@@ -635,26 +630,26 @@ export function createSquidOrgans() {
   });
 
   // 白色瞳孔高光 (White Specular Highlight)
-  const pupilGeom = new THREE.SphereGeometry(0.038, 12, 10);
+  const pupilGeom = new THREE.SphereGeometry(0.045, 12, 10);
   const pupilMat = new THREE.MeshBasicMaterial({ color: '#ffffff' });
 
-  // Left Eye (placed on lateral lower flank, slightly forward facing)
+  // Left Eye (sitting proudly on front-lateral surface)
   const leftEye = new THREE.Mesh(eyeGeom, eyeMat);
-  leftEye.position.set(0.38, -0.22, 0.22);
-  leftEye.rotation.y = 0.55;
-  leftEye.rotation.x = 0.12;
+  leftEye.position.set(0.35, -0.28, 0.49);
+  leftEye.rotation.y = 0.50;
+  leftEye.rotation.x = 0.15;
   const leftPupil = new THREE.Mesh(pupilGeom, pupilMat);
-  leftPupil.position.set(0.03, 0.04, 0.095);
+  leftPupil.position.set(0.035, 0.045, 0.11);
   leftEye.add(leftPupil);
   group.add(leftEye);
 
   // Right Eye
   const rightEye = new THREE.Mesh(eyeGeom, eyeMat);
-  rightEye.position.set(-0.38, -0.22, 0.22);
-  rightEye.rotation.y = -0.55;
-  rightEye.rotation.x = 0.12;
+  rightEye.position.set(-0.35, -0.28, 0.49);
+  rightEye.rotation.y = -0.50;
+  rightEye.rotation.x = 0.15;
   const rightPupil = new THREE.Mesh(pupilGeom, pupilMat);
-  rightPupil.position.set(-0.03, 0.04, 0.095);
+  rightPupil.position.set(-0.035, 0.045, 0.11);
   rightEye.add(rightPupil);
   group.add(rightEye);
 
@@ -663,9 +658,9 @@ export function createSquidOrgans() {
     core,
     leftEye,
     rightEye,
-    leftEyeRest: [0.38, -0.22, 0.22],
-    rightEyeRest: [-0.38, -0.22, 0.22],
-    coreRest: [0, 0.05, 0]
+    leftEyeRest: [0.35, -0.28, 0.49],
+    rightEyeRest: [-0.35, -0.28, 0.49],
+    coreRest: [0, -0.05, 0]
   };
 }
 
@@ -678,65 +673,56 @@ export function createSquidOrgans() {
 export function createTentacleMeshes(tentaclesCount = 8) {
   const meshes = [];
 
-  // Tender peach-pink jelly material matching squid mantle
   const tentacleMat = new THREE.MeshPhysicalMaterial({
     color: '#fff1ee',
-    roughness: 0.06,
+    roughness: 0.05,
     metalness: 0.0,
     transmission: 0.96,
     thickness: 1.8,
     ior: 1.39,
     attenuationColor: new THREE.Color('#b93822'),
-    attenuationDistance: 0.82,
+    attenuationDistance: 0.80,
     clearcoat: 1.0,
-    clearcoatRoughness: 0.03
+    clearcoatRoughness: 0.025
   });
 
-  // Milky tender pink suction cups material
   const suckerMat = new THREE.MeshStandardMaterial({
     color: '#ffedd5',
     roughness: 0.22,
     metalness: 0.05
   });
 
-  // Sucker cup prototype
   const suckerGeom = new THREE.SphereGeometry(0.026, 8, 6);
   suckerGeom.scale(1.0, 0.55, 1.0);
 
-  // Tentacle configurations:
-  // Indices 0..5: 6 Short Arms (naturally undulating / wavy curls)
-  // Indices 6..7: 2 Long Tentacles (with expanded paddle/club at tip)
   for (let i = 0; i < tentaclesCount; i++) {
     const isLongTentacle = (i >= 6);
-    const length = isLongTentacle ? 2.15 : 1.05;
+    const length = isLongTentacle ? 2.15 : 1.08;
     const topRadius = isLongTentacle ? 0.036 : 0.048;
     const bottomRadius = isLongTentacle ? 0.022 : 0.016;
     const radialSegments = 8;
     const heightSegments = isLongTentacle ? 24 : 16;
 
-    // Tube geometry along Y axis (anchored at Y = 0, extending downwards to -length)
     const geom = new THREE.CylinderGeometry(bottomRadius, topRadius, length, radialSegments, heightSegments);
-    geom.translate(0, -length * 0.5, 0); // origin at top anchor
+    geom.translate(0, -length * 0.5, 0);
 
-    // Add initial natural organic wave curve
     const pos = geom.getAttribute('position');
     for (let k = 0; k < pos.count; k++) {
       const py = pos.getY(k);
       const progress = Math.max(0, Math.min(1.0, -py / length));
 
       if (isLongTentacle) {
-        // Long feeding tentacles: gentle S-curve, expanding into paddle at tip
+        // Long tentacles: elegant S-curve and expanding into paddle club at tip
         const wave = Math.sin(progress * Math.PI * 1.5) * 0.08;
         pos.setX(k, pos.getX(k) + wave);
 
-        // Expand tip into paddle club (progress > 0.78)
-        if (progress > 0.78) {
-          const clubFactor = Math.sin(((progress - 0.78) / 0.22) * Math.PI);
-          pos.setX(k, pos.getX(k) * (1.0 + clubFactor * 3.2));
-          pos.setZ(k, pos.getZ(k) * (1.0 + clubFactor * 1.4));
+        if (progress > 0.76) {
+          const clubFactor = Math.sin(((progress - 0.76) / 0.24) * Math.PI);
+          pos.setX(k, pos.getX(k) * (1.0 + clubFactor * 3.4));
+          pos.setZ(k, pos.getZ(k) * (1.0 + clubFactor * 1.5));
         }
       } else {
-        // 6 Short Arms: wavy outward curve
+        // Short arms: natural undulating wave
         const wave = Math.sin(progress * Math.PI * 1.8) * 0.12 * progress;
         pos.setZ(k, pos.getZ(k) + wave);
       }
@@ -747,14 +733,12 @@ export function createTentacleMeshes(tentaclesCount = 8) {
     const mesh = new THREE.Mesh(geom, tentacleMat);
     mesh.frustumCulled = false;
 
-    // Attach suction cups along the tentacle
     const suckersGroup = new THREE.Group();
     const cupCount = isLongTentacle ? 12 : 7;
     for (let c = 1; c <= cupCount; c++) {
       const frac = isLongTentacle ? (0.76 + (c / cupCount) * 0.22) : (0.2 + (c / cupCount) * 0.75);
       const cy = -frac * length;
       const cup = new THREE.Mesh(suckerGeom, suckerMat);
-      // Positioned on inner face of tentacle
       cup.position.set(0, cy, 0.038);
       cup.scale.setScalar(isLongTentacle ? 0.95 : (0.8 + 0.3 * (1 - frac)));
       suckersGroup.add(cup);

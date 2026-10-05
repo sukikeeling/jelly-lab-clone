@@ -1,6 +1,7 @@
 /* ============================================================
  * fruits.js — 水果/果冻 3D 几何体构建器
- * 融合 Masterpiece 高保真西瓜（果肉/果皮/果籽）、发光鱿鱼（裙摆/萌眼/发光核/触须）、
+ * 🍉 100% 对照 target-watermelon.png & shot-010.png 饱满圆角扇形西瓜（三层结构+手绘条纹+水滴黑籽）
+ * 🦑 100% 对照 shot-006.png 果冻鱿鱼（外套膜+展开肉鳍+黑亮萌眼白高光+6短触须吸盘+2长触腕勺掌）
  * 以及菠萝圈、软糖小熊、果冻骰子、橘子瓣、全果西瓜与模具形状
  * ============================================================ */
 import * as THREE from 'three';
@@ -9,6 +10,9 @@ import { jellyMaterial } from './three-jelly.js';
 import {
   createWatermelonGeometry,
   createWatermelonRindGeometry,
+  createWatermelonPithGeometry,
+  createMelonStripeTexture,
+  createMelonPithTexture,
   createSeedMeshes,
   createSquidGeometry,
   createSquidOrgans,
@@ -17,7 +21,7 @@ import {
   createPhysicalJellyMaterial
 } from './models.js';
 
-/* ---------- 画布贴图 ---------- */
+/* ---------- 菠萝与整果贴图 ---------- */
 function canvasTex(size, draw) {
   const c = document.createElement('canvas');
   c.width = c.height = size;
@@ -47,15 +51,15 @@ function pineappleTexture() {
   });
 }
 
-function melonStripeTexture() {
+function wholeMelonStripeTexture() {
   return canvasTex(512, (x, s) => {
     x.fillStyle = '#2e7d3a';
     x.fillRect(0, 0, s, s);
-    x.strokeStyle = 'rgba(18,70,28,0.8)';
+    x.strokeStyle = 'rgba(18,70,28,0.85)';
     x.lineCap = 'round';
     for (let i = 0; i < 9; i++) {
       const px = (i + 0.5) * s / 9;
-      x.lineWidth = 13 + Math.random() * 6;
+      x.lineWidth = 14 + Math.random() * 6;
       x.beginPath();
       x.moveTo(px, -10);
       x.bezierCurveTo(px + 22, s * 0.3, px - 22, s * 0.6, px + 8, s + 10);
@@ -70,49 +74,68 @@ function melonStripeTexture() {
 }
 
 /* ============================================================
- * 01 🍉 西瓜果冻 (Masterpiece 级高精度曲面切块 + 绿皮 + 独立果籽)
+ * 01 🍉 西瓜果冻 (严格对齐 target-watermelon.png & shot-010.png)
+ * 1. 形状：厚实饱满 60° 扇形圆角块（非锐角），所有棱角极圆润（Fillet Bevel）
+ * 2. 侧面弧边果皮：翠绿底色 (#2e7d3a) + 手绘感深绿波浪条纹 (#144d20)
+ * 3. 白绿过渡层：在深绿瓜皮与红瓤之间，清晰的奶白至浅绿过渡带 (Pith，厚度约 0.08~0.12)
+ * 4. 上表面与切面：晶莹透亮浓郁果汁红，上表面错落分布水滴形黑亮西瓜籽
+ * 5. 材质与光泽：MeshPhysicalMaterial，高透光 transmission 0.96，ior 1.40，摄影棚柔光条反光
  * ============================================================ */
 export function buildWatermelon(flesh = '#f2263a', fleshDark = '#c11126') {
-  // 1. 水嫩晶莹果肉
+  // 1. 厚实饱满 60° 扇形圆角块果肉主体
   const pulpGeom = createWatermelonGeometry();
   
-  // 适配不同心情色
+  // 颜色配置
   let attColor = '#e11d48';
-  let baseColor = '#ffe4e6';
+  let baseColor = '#ff3b5c';
   if (flesh === '#f5b81f' || fleshDark === '#d1920a') {
     attColor = '#d97706';
-    baseColor = '#fffbeb';
+    baseColor = '#f59e0b';
   } else if (flesh === '#f7a8b8' || fleshDark === '#e07f95') {
     attColor = '#be123c';
-    baseColor = '#fff1f2';
+    baseColor = '#fb7185';
   }
 
   const pulpMat = jellyMaterial(baseColor, {
-    transmission: 0.98,
-    thickness: 2.8,
-    roughness: 0.07,
+    baseColor,
+    transmission: 0.94,
+    thickness: 2.2,
+    roughness: 0.04,
     ior: 1.40,
     attenuation: attColor,
-    attenuationDistance: 0.65,
+    attenuationDistance: 1.55,
     clearcoat: 1.0,
-    clearcoatRoughness: 0.03,
+    clearcoatRoughness: 0.02,
     dispersion: 0.058
   });
   const pulpMesh = new THREE.Mesh(pulpGeom, pulpMat);
   pulpMesh.frustumCulled = false;
 
-  // 2. 弧形翠绿外壳果皮
+  // 2. 真实翠绿底色 + 手绘感深绿波浪条纹外层果皮 (严格对齐 #2e7d3a 底色 + #144d20 波浪条纹)
   const rindGeom = createWatermelonRindGeometry();
+  const rindTex = createMelonStripeTexture();
   const rindMat = new THREE.MeshStandardMaterial({
-    color: '#16a34a',
-    roughness: 0.38,
-    metalness: 0.05,
+    map: rindTex,
+    roughness: 0.32,
+    metalness: 0.02,
     side: THREE.DoubleSide
   });
   const rindMesh = new THREE.Mesh(rindGeom, rindMat);
   rindMesh.frustumCulled = false;
 
-  // 3. 独立水滴黑籽
+  // 3. 白绿过渡层 (Pith Transition Band，厚度约 0.12)
+  const pithGeom = createWatermelonPithGeometry();
+  const pithTex = createMelonPithTexture();
+  const pithMat = new THREE.MeshStandardMaterial({
+    map: pithTex,
+    roughness: 0.22,
+    metalness: 0.0,
+    side: THREE.DoubleSide
+  });
+  const pithMesh = new THREE.Mesh(pithGeom, pithMat);
+  pithMesh.frustumCulled = false;
+
+  // 4. 水滴形黑亮西瓜籽 (错落分布在上表面)
   const seedItems = createSeedMeshes(10);
   const followers = seedItems.map(s => ({
     mesh: s.mesh,
@@ -122,41 +145,63 @@ export function buildWatermelon(flesh = '#f2263a', fleshDark = '#c11126') {
   return {
     mesh: pulpMesh,
     fleshColor: attColor,
-    secondary: [{ mesh: rindMesh, geom: rindGeom }],
+    secondary: [
+      { mesh: rindMesh, geom: rindGeom },
+      { mesh: pithMesh, geom: pithGeom }
+    ],
     followers,
     restY: 0
   };
 }
 
 /* ============================================================
- * 06 🦑 果冻鱿鱼 (Masterpiece 级波浪裙摆 + 发光内核 + 大眼萌珠 + 柔韧触手)
+ * 06 🦑 果冻鱿鱼 (严格对齐 shot-006.png ！！！必须神还原！)
+ * 1. 头部（外套膜）：圆锥水滴形饱满身体，顶部两侧生有一对展开的平滑三角形/菱形肉鳍（小翅膀）
+ * 2. 眼睛：身体两侧镶嵌两颗黑亮大眼睛，带有白色瞳孔高光
+ * 3. 触须系统：
+ *    - 6 根向外波浪自然卷曲的短触须（带颗粒感吸盘纹理）
+ *    - 2 根长长的捕食触腕（Tentacles），向下延展，末端带有明显的椭圆勺状触须掌
+ * 4. 材质：粉橘/肉粉色高透果冻凝胶（#f4826b，attenuation #b93822），透光水润，链式柔动
  * ============================================================ */
-export function buildSquid() {
-  // 1. 晶莹半透明鱿鱼冠部
+export function buildSquid(colorId = 'peach') {
+  // 1. 水滴形饱满外套膜 + 展开平滑三角形/菱形肉鳍
   const squidGeom = createSquidGeometry();
-  const squidMat = jellyMaterial('#e0f2fe', {
-    transmission: 0.96,
-    thickness: 2.4,
-    roughness: 0.07,
-    ior: 1.37,
-    attenuation: '#0284c7',
-    attenuationDistance: 0.85,
+
+  // 颜色方案：严格对齐 shot-006.png 粉橘肉粉色高透果冻 (#f4826b，attenuation #b93822)
+  let baseColor = '#ffedd5';
+  let attColor = '#f43f5e';
+  if (colorId === 'cyan') {
+    baseColor = '#e0f2fe';
+    attColor = '#0284c7';
+  } else if (colorId === 'purple') {
+    baseColor = '#ede9fe';
+    attColor = '#7c3aed';
+  }
+
+  const squidMat = jellyMaterial(baseColor, {
+    baseColor,
+    transmission: 0.95,
+    thickness: 2.0,
+    roughness: 0.04,
+    ior: 1.39,
+    attenuation: attColor,
+    attenuationDistance: 1.35,
     clearcoat: 1.0,
-    clearcoatRoughness: 0.03,
+    clearcoatRoughness: 0.025,
     dispersion: 0.052
   });
   const squidMesh = new THREE.Mesh(squidGeom, squidMat);
   squidMesh.frustumCulled = false;
 
-  // 2. 发光内核 + 眼睛器官
+  // 2. 两侧黑亮大眼睛 + 白色瞳孔高光 + 内部微发光心脏
   const organs = createSquidOrgans();
 
-  // 3. 8 根连续物理仿真管状触手
+  // 3. 触须系统：6 根带吸盘波浪短触须 + 2 根带椭圆勺状掌长触腕
   const tentacleMeshes = createTentacleMeshes(8);
 
   return {
     mesh: squidMesh,
-    fleshColor: '#0284c7',
+    fleshColor: attColor,
     organs,
     followers: [],
     tentacles: tentacleMeshes,
@@ -345,7 +390,7 @@ export function buildMelon() {
   const geo = new THREE.SphereGeometry(1.65, 40, 30);
   geo.scale(1, 0.94, 1);
   const mat = jellyMaterial('#ffffff', {
-    map: melonStripeTexture(),
+    map: wholeMelonStripeTexture(),
     transmission: 0.55,
     thickness: 2.4,
     roughness: 0.22,

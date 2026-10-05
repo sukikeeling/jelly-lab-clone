@@ -102,10 +102,10 @@ export const GAMES = {
     tips: { main: '💡 <b>戳一戳</b> 点触小鱿鱼，触手会害羞抖动；按住可以拉扯它。' },
     modes: [{ id: 'poke', name: '戳一戳', icon: 'poke' }, { id: 'flip', name: '翻个面', icon: 'flip' }],
     colors: [
+      { id: 'peach', name: '肉粉果冻 (原版)', dot: '#f4826b' },
       { id: 'cyan', name: '海洋薄荷', dot: '#0284c7' },
-      { id: 'pink', name: '樱花粉鱿', dot: '#fb7185' },
       { id: 'purple', name: '极光荧紫', dot: '#8b5cf6' },
-    ], defaultColor: 'cyan',
+    ], defaultColor: 'peach',
     actions: [{ id: 'shake', name: '晃一下', primary: true }, { id: 'reset', name: '↺ 重来' }, { id: 'pause', name: '⏸ 暂停' }],
     tabs: ['操作', '手感', '颜色', '特效'],
     build: (colorId) => buildSquid(colorId),
