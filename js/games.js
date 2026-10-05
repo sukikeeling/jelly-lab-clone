@@ -1,8 +1,17 @@
 /* ============================================================
- * games.js — 7 个游戏配置（3D 版）
+ * games.js — 7 个游戏配置（3D 满血 XPBD 版）
  * 元数据（名称/模式/颜色/文案）+ 3D 构建器引用
  * ============================================================ */
-import { buildWatermelon, buildOrange, buildPineappleRing, buildGummyBear, buildDice, buildSquid, buildMelon, buildMoldShape } from './fruits.js';
+import {
+  buildWatermelon,
+  buildOrange,
+  buildPineappleRing,
+  buildGummyBear,
+  buildDice,
+  buildSquid,
+  buildMelon,
+  buildMoldShape
+} from './fruits.js';
 
 const MELON_COLORS = [
   { id: 'red', name: '经典红瓜', flesh: '#f2263a', fleshDark: '#c11126', dot: '#f2263a' },
@@ -15,7 +24,10 @@ export const GAMES = {
     num: '01', name: '西瓜果冻', script: 'A piece of summer', tag: '捏切 · 解压',
     desc: '捏住一块夏天，想怎么切都可以。', baseMass: 78, cuttable: true,
     dataLabels: ['果冻块数', '质量', '体积保持', '运动能量'], dataUnits: ['块', '克', '%', '微焦'],
-    tips: { pinch: '💡 <b>捏一捏</b> 按住果冻拖动，加入第二根手指可扭转。', cut: '💡 <b>切一切</b> 划过果冻，松手落刀。小块也可以继续切。' },
+    tips: {
+      pinch: '💡 <b>捏一捏</b> 按住果冻拖动，加入第二根手指可扭转。松手看它饱满回弹。',
+      cut: '💡 <b>切一切</b> 划过果冻，松手落刀。小块也可以继续切。'
+    },
     modes: [{ id: 'pinch', name: '捏一捏', icon: 'hand' }, { id: 'cut', name: '切一切', icon: 'knife' }],
     colors: MELON_COLORS, defaultColor: 'red',
     actions: [{ id: 'shake', name: '晃一下', primary: true }, { id: 'reset', name: '↺ 重来' }, { id: 'pause', name: '⏸ 暂停' }],
@@ -87,11 +99,16 @@ export const GAMES = {
     num: '06', name: '果冻鱿鱼', script: 'A quiet ocean dream', tag: '触手 · 抖动',
     desc: '戳戳小鱿鱼，看触手跳舞。', baseMass: 48, squid: true,
     dataLabels: ['模拟质量', '体积保持', '运动能量'], dataUnits: ['克', '%', '微焦'],
-    tips: { main: '💡 <b>戳一戳</b> 点触小鱿鱼，触手会抖动；按住可以拉扯。' },
+    tips: { main: '💡 <b>戳一戳</b> 点触小鱿鱼，触手会害羞抖动；按住可以拉扯它。' },
     modes: [{ id: 'poke', name: '戳一戳', icon: 'poke' }, { id: 'flip', name: '翻个面', icon: 'flip' }],
+    colors: [
+      { id: 'cyan', name: '海洋薄荷', dot: '#0284c7' },
+      { id: 'pink', name: '樱花粉鱿', dot: '#fb7185' },
+      { id: 'purple', name: '极光荧紫', dot: '#8b5cf6' },
+    ], defaultColor: 'cyan',
     actions: [{ id: 'shake', name: '晃一下', primary: true }, { id: 'reset', name: '↺ 重来' }, { id: 'pause', name: '⏸ 暂停' }],
-    tabs: ['操作', '手感', '特效'],
-    build: () => buildSquid(),
+    tabs: ['操作', '手感', '颜色', '特效'],
+    build: (colorId) => buildSquid(colorId),
   },
   '07': {
     num: '07', name: '西瓜', script: 'How much pressure?', tag: '橡皮筋 · 承压',
@@ -109,4 +126,4 @@ export const GAMES = {
   },
 };
 
-export const GAME_ORDER = ['01','02','03','04','05','06','07'];
+export const GAME_ORDER = ['01', '02', '03', '04', '05', '06', '07'];

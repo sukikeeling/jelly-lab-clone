@@ -1,9 +1,9 @@
 /* ============================================================
- * app.js — 果冻实验室：路由、首页、游戏页、交互
+ * app.js — 果冻实验室：路由、首页、游戏页、交互与满血 120Hz XPBD
  * ============================================================ */
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { createStage, JellyBody } from './three-jelly.js';
+import { createStage, JellyBody, buildStudioEnvironment } from './three-jelly.js';
 import { cutJelly, hitOnKeptSide } from './cut.js';
 import { GAMES, GAME_ORDER } from './games.js';
 import { icon } from './icons.js';
@@ -17,12 +17,19 @@ const S = {
   jellies: [],          // 当前页的 JellyBody[]
   mode: 'pinch',
   colorId: null,
-  softness: 0.55, bounciness: 0.6,
-  gloss: true, dust: true,
+  softness: 0.55,
+  bounciness: 0.60,
+  jiggle: 0.75,
+  gloss: true,
+  dust: true,
+  slow: false,
+  wireframe: false,
   paused: false,
-  cuts: 0, throws: 0,
-  stage: null, raf: 0,
-  cam: { theta: 0, phi: 1.12, r: 7.4, tx: 0, ty: 0.25, tz: 0 },
+  cuts: 0,
+  throws: 0,
+  stage: null,
+  raf: 0,
+  cam: { theta: 0, phi: 1.15, r: 7.2, tx: 0, ty: 0.9, tz: 0 },
   camHome: null,
   favs: new Set(JSON.parse(localStorage.getItem('jelly-favs') || '[]')),
   playCount: parseInt(localStorage.getItem('jelly-plays') || '0'),
@@ -53,7 +60,6 @@ document.addEventListener('pointerdown', unlockAudio, { once: false });
 function showPage(id) {
   $$('.page').forEach(p => p.classList.remove('active'));
   $('#' + id).classList.add('active');
-  // 底部导航只属于首页系（首页/收藏/我的），游戏页隐藏
   $('#tabbar').style.display = id === 'page-game' ? 'none' : 'flex';
   $$('#tabbar button').forEach(b => b.classList.remove('on'));
   window.scrollTo(0, 0);
@@ -94,46 +100,68 @@ async function thumbSetup() {
   thumbRenderer.setPixelRatio(1);
   thumbRenderer.setClearColor(0x000000, 0);
   thumbRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+  thumbRenderer.toneMappingExposure = 1.16;
+
   thumbScene = new THREE.Scene();
   thumbScene.background = null;
+
   thumbCam = new THREE.PerspectiveCamera(32, 320 / 230, 0.1, 50);
-  thumbCam.position.set(0, 1.6, 6.4);
-  thumbCam.lookAt(0, 0, 0);
-  thumbScene.add(new THREE.HemisphereLight(0xfff6e8, 0xd8c4a8, 1.2));
-  const key = new THREE.DirectionalLight(0xffffff, 2.0);
+  thumbCam.position.set(0, 1.8, 6.4);
+  thumbCam.lookAt(0, 0.6, 0);
+
+  thumbScene.add(new THREE.HemisphereLight(0xfff6e8, 0xd8c4a8, 1.8));
+  const key = new THREE.DirectionalLight(0xffffff, 3.0);
   key.position.set(3, 5, 4);
   thumbScene.add(key);
-  const rim = new THREE.DirectionalLight(0xffe8dc, 1.0);
+
+  const rim = new THREE.DirectionalLight(0xffe8dc, 1.5);
   rim.position.set(-3, 2, -3);
   thumbScene.add(rim);
-  // 环境反射（透光质感关键）
+
   try {
-    const pmrem = new THREE.PMREMGenerator(thumbRenderer);
-    thumbScene.environment = pmrem.fromScene(new RoomEnvironment(), 0.06).texture;
+    thumbScene.environment = buildStudioEnvironment(thumbRenderer);
   } catch (e) {}
 }
+
 async function makeThumb(id) {
-    if (S.thumbs[id]) return S.thumbs[id];
-    try {
-      await thumbSetup();
-      const g = GAMES[id];
-      const built = g.build(g.defaultColor);
-      const holder = new THREE.Group();
-      holder.add(built.mesh);
+  if (S.thumbs[id]) return S.thumbs[id];
+  try {
+    await thumbSetup();
+    const g = GAMES[id];
+    const built = g.build(g.defaultColor);
+    const holder = new THREE.Group();
+    holder.add(built.mesh);
+
+    if (built.secondary) {
+      built.secondary.forEach(s => holder.add(s.mesh));
+    }
+    if (built.organs) {
+      holder.add(built.organs.group);
+    }
+    if (built.tentacles) {
+      built.tentacles.forEach(t => holder.add(t.mesh));
+    }
+    if (built.followers) {
       built.followers.forEach(f => holder.add(f.mesh));
-      // 摆一下
-      const box = new THREE.Box3().setFromObject(holder);
-      const c = box.getCenter(new THREE.Vector3());
-      holder.position.sub(c);
-      holder.position.y += 0.2;
-      thumbScene.add(holder);
-      thumbRenderer.render(thumbScene, thumbCam);
-      const url = thumbRenderer.domElement.toDataURL('image/png');
-      thumbScene.remove(holder);
-      built.mesh.geometry.dispose();
-      S.thumbs[id] = url;
-      return url;
-    } catch (e) { return ''; }
+    }
+
+    const box = new THREE.Box3().setFromObject(holder);
+    const c = box.getCenter(new THREE.Vector3());
+    holder.position.sub(c);
+    holder.position.y += 0.2;
+
+    thumbScene.add(holder);
+    thumbRenderer.render(thumbScene, thumbCam);
+    const url = thumbRenderer.domElement.toDataURL('image/png');
+    thumbScene.remove(holder);
+
+    built.mesh.geometry.dispose();
+    if (built.secondary) built.secondary.forEach(s => s.mesh.geometry.dispose());
+    S.thumbs[id] = url;
+    return url;
+  } catch (e) {
+    return '';
+  }
 }
 
 /* ---------------- 首页 ---------------- */
@@ -150,10 +178,10 @@ async function renderHome() {
     </div>
     <div class="home-head">
       <h1>果冻实验室</h1>
-      <div class="script">Jelly Lab ·</div>
+      <div class="script">Jelly Lab · 满血 3D XPBD 版</div>
     </div>
     <div class="home-sub">
-      <p>捏一捏，切一切。<br>把时间放慢一点。</p>
+      <p>捏一捏，切一切。<br>120Hz 晶格体积守恒，把时间放慢一点。</p>
       <button class="sound-pill" id="home-sound">🎵 声音设置 ＞</button>
     </div>
     <div class="hero-card" id="hero-card">
@@ -163,7 +191,7 @@ async function renderHome() {
         <button class="fav-btn" data-fav="01">${icon('heart', 20)}</button>
       </div>
       <div class="hero-body">
-        <div><h2>一块夏天</h2><p>捏住一块夏天，想怎么切都可以。</p></div>
+        <div><h2>一块夏天</h2><p>捏住一块夏天，想怎么切都可以。带果皮果籽真软体。</p></div>
         <button class="cta-btn" data-go="01">开始解压 →</button>
       </div>
     </div>
@@ -183,7 +211,6 @@ async function renderHome() {
   };
   syncFavHearts(el);
 
-  // 缩略图
   makeThumb('01').then(u => { const i = $('#hero-img'); if (i && u) i.src = u; });
   const grid = $('#home-grid');
   for (const id of GAME_ORDER.slice(1)) {
@@ -244,7 +271,7 @@ function renderMe() {
     <div class="profile-card">
       <div class="avatar">🍮</div>
       <h3>软乎乎实验员</h3>
-      <p style="color:var(--ink2);font-size:13px;margin-top:6px">把时间放慢一点</p>
+      <p style="color:var(--ink2);font-size:13px;margin-top:6px">把时间放慢一点 · 满血 120Hz XPBD</p>
       <div class="stat-row">
         <div><b>${S.playCount}</b><span>解压次数</span></div>
         <div><b>${S.favs.size}</b><span>收藏</span></div>
@@ -261,13 +288,13 @@ function renderMe() {
 
 /* ---------------- 弹窗 ---------------- */
 const HELP_COPY = {
-  '01': `<p>🍉 <b>捏一捏</b>：按住西瓜果冻拖动，它会跟着你的手指变形；松手，Q 弹回原形。试试用两根手指扭转。</p><p>🔪 <b>切一切</b>：手指划过果冻画出虚线，松手落刀——咔嚓分成两块。小块还能继续切。</p><p>🥄 <b>晃一下</b>：整个果冻波浪式抖动，果冻丝会被拉出来哦。</p><p>🎨 换个颜色，给今天换个心情。数据条会实时记录你的解压成果。</p>`,
+  '01': `<p>🍉 <b>捏一捏</b>：按住西瓜果冻拖动，它会顺着你的手指饱满变形；松手，384 四面体体积守恒自然回弹。双指扭转体验丰富。</p><p>🔪 <b>切一切</b>：划过果冻松手落刀——咔嚓分成两块，带独立晶格软体物理！</p><p>🥄 <b>晃一下</b>：整个果冻波浪式抖动，果冻丝飞溅拉出。</p><p>🎨 换个颜色，给今天换个心情。数据条实时记录真实能量与体积保持率。</p>`,
   '02': `<p>🍍 <b>拉一拉</b>：按住菠萝圈向外扯，松手看它"嘣"地弹回去。</p><p>👆 <b>轻轻弹一下</b>：戳它一下，看它抖三抖。</p><p>🔄 <b>翻个面</b>：让菠萝圈翻个身，换个角度解压。</p>`,
-  '03': `<p>🧸 <b>捏一捏</b>：捏捏小熊的脸颊和肚皮，软糖会 Q 弹变形。</p><p>🔄 <b>翻个面</b>：看看小熊的后脑勺。</p>`,
+  '03': `<p>🧸 <b>捏一捏</b>：捏捏小熊的脸颊和肚皮，软糖会 Q 弹变形，保体积不塌陷。</p><p>🔄 <b>翻个面</b>：看看小熊的后脑勺。</p>`,
   '04': `<p>🎲 <b>摇一摇</b>：点击骰子或按钮，把它抛起来。看它弹跳、翻滚，最后定格——今天的运气是几点？</p>`,
   '05': `<p>🍊 <b>揉捏</b>：按住果冻拉伸，双指扭转，拖空白处旋转视角。</p><p>🔪 <b>切一刀</b>：划线、落刀，橘子分成小块。</p><p>⭐ <b>形状模具</b>：星星、圆形、爱心，一秒换形。</p>`,
-  '06': `<p>🦑 <b>戳一戳</b>：点触小鱿鱼，触手会害羞地抖动。按住拖动可以拉扯它。</p>`,
-  '07': `<p>🍉 <b>加一根橡皮筋</b>：每点一下，多一根皮筋勒住西瓜。看看它能撑住几根？</p><p>勒得越紧，西瓜越扁——压力也是这样，一点点加上去的。深呼吸，慢慢来。</p>`,
+  '06': `<p>🦑 <b>戳一戳</b>：点触小鱿鱼，深色发光内核与大眼睛随波荡漾，8 根柔韧触手连续动态摆动！</p>`,
+  '07': `<p>🍉 <b>加一根橡皮筋</b>：每点一下，多一根皮筋勒住西瓜。看看它能撑住几根？</p>`,
 };
 function openHelp(gameId) {
   $('#help-body').innerHTML = HELP_COPY[gameId] || '<p>捏一捏，切一切，把时间放慢一点。</p>';
@@ -293,11 +320,10 @@ $('#vol-range').oninput = e => {
   $('#vol-val').textContent = e.target.value + '%';
   JellySound.setVolume(e.target.value / 100);
 };
-/* ============================================================
- * app.js（下）— 游戏页
- * ============================================================ */
 
-/* ---------------- 游戏页 HTML ---------------- */
+/* ============================================================
+ * 游戏页 HTML 与控制器
+ * ============================================================ */
 function gameHTML(g) {
   const tabs = g.tabs.map((t, i) => `<button data-tab="${t}" class="${i === 0 ? 'on' : ''}">${t}</button>`).join('');
   const modes = (g.modes || []).map((m, i) =>
@@ -312,7 +338,7 @@ function gameHTML(g) {
   return `
   <div class="topbar">
     <button class="back-btn" id="g-back">${icon('back', 18)} 返回系列</button>
-    <div class="title"><h1>${g.name}</h1><div class="en">Jelly Lab</div></div>
+    <div class="title"><h1>${g.name}</h1><div class="en">Jelly Lab · XPBD</div></div>
     <div style="display:flex;gap:10px">
       <button class="icon-btn" id="g-user">${icon('user', 20)}</button>
       <button class="icon-btn" id="g-share">${icon('share', 20)}</button>
@@ -328,7 +354,7 @@ function gameHTML(g) {
     <canvas id="overlay" class="cut-hint"></canvas>
   </div>
   <div class="status-row">
-    <span class="live">可以开玩</span>
+    <span class="live">● 120Hz 物理在线</span>
     ${g.cutCount ? '<span id="cut-count">已切成 1 块</span>' : (g.rubber ? '<span id="band-top"><b style="font-size:18px">0</b> 根橡皮皮筋</span>' : '<span></span>')}
   </div>
   <div class="data-bar" id="data-bar">
@@ -345,13 +371,17 @@ function gameHTML(g) {
   <div class="panel" data-panel="手感">
     <div class="slider-row"><label>果冻软硬度 <b id="soft-val">适中</b></label>
       <input type="range" id="soft-range" min="0" max="100" value="55"></div>
-    <div class="slider-row"><label>Q 弹系数 <b id="bounce-val">Q弹</b></label>
+    <div class="slider-row"><label>阻尼回弹 <b id="bounce-val">Q弹</b></label>
       <input type="range" id="bounce-range" min="0" max="100" value="60"></div>
+    <div class="slider-row"><label>抖动频率 <b id="jiggle-val">高频震颤</b></label>
+      <input type="range" id="jiggle-range" min="0" max="100" value="75"></div>
   </div>
   <div class="panel" data-panel="颜色">${(g.colors && g.colors.length) ? `<div class="color-row">${colors}</div>` : '<div class="empty-tip" style="padding:20px">本款只有一种心情色</div>'}</div>
   <div class="panel" data-panel="特效">
     <div class="switch-row"><span>✨ 果冻光泽</span><button class="switch on" id="sw-gloss"></button></div>
     <div class="switch-row"><span>💫 氛围粒子</span><button class="switch on" id="sw-dust"></button></div>
+    <div class="switch-row"><span>⏳ 慢动作回弹 (0.25x)</span><button class="switch" id="sw-slow"></button></div>
+    <div class="switch-row"><span>🕸️ 物理晶格 (XPBD 384体)</span><button class="switch" id="sw-wire"></button></div>
   </div>
   <div class="dice-result" id="dice-result"></div>
   <div class="action-row">${actions}</div>
@@ -365,7 +395,8 @@ function enterGame(id) {
   S.mode = (g.modes && g.modes[0] && g.modes[0].id) || 'pinch';
   S.colorId = g.defaultColor || null;
   S.cuts = 0; S.throws = 0; S.paused = false;
-  S.softness = 0.55; S.bounciness = 0.6;
+  S.softness = 0.55; S.bounciness = 0.6; S.jiggle = 0.75;
+  S.slow = false; S.wireframe = false;
   S.playCount++; localStorage.setItem('jelly-plays', S.playCount);
 
   const el = $('#page-game');
@@ -400,7 +431,7 @@ function enterGame(id) {
     b.classList.add('on');
     $$('#page-game .panel').forEach(p => p.classList.toggle('on', p.dataset.panel === b.dataset.tab));
   };
-  // modes（用 onclick 避免重复进入时监听器累积）
+
   el.onclick = e => {
     const mb = e.target.closest('[data-mode]');
     if (mb) {
@@ -444,13 +475,19 @@ function enterGame(id) {
     $('#bounce-val').textContent = v < 0.33 ? '沉稳' : v < 0.7 ? 'Q弹' : '暴弹';
     S.jellies.forEach(j => j.setDamping((1 - v) * 50));
   };
+  $('#jiggle-range').oninput = e => {
+    const v = e.target.value / 100;
+    S.jiggle = v;
+    $('#jiggle-val').textContent = v < 0.33 ? '低频沉稳' : v < 0.7 ? '灵动微颤' : '高频震颤';
+    S.jellies.forEach(j => j.setJiggle(v * 100));
+  };
   $('#sw-gloss').onclick = e => {
     S.gloss = !S.gloss;
     e.target.classList.toggle('on', S.gloss);
     S.jellies.forEach(j => {
       const m = j.mesh.material;
       (Array.isArray(m) ? m : [m]).forEach(mm => {
-        if (mm.clearcoat !== undefined) { mm.clearcoat = S.gloss ? 0.7 : 0.05; mm.needsUpdate = true; }
+        if (mm.clearcoat !== undefined) { mm.clearcoat = S.gloss ? 1.0 : 0.05; mm.needsUpdate = true; }
       });
     });
     JellySound.pop();
@@ -459,6 +496,20 @@ function enterGame(id) {
     S.dust = !S.dust;
     e.target.classList.toggle('on', S.dust);
     if (S.dustSystem) S.dustSystem.visible = S.dust;
+    JellySound.pop();
+  };
+  $('#sw-slow').onclick = e => {
+    S.slow = !S.slow;
+    e.target.classList.toggle('on', S.slow);
+    S.jellies.forEach(j => j.setSlow(S.slow));
+    toast(S.slow ? '已开启 0.25x 慢动作回弹' : '已恢复正常速度');
+    JellySound.pop();
+  };
+  $('#sw-wire').onclick = e => {
+    S.wireframe = !S.wireframe;
+    e.target.classList.toggle('on', S.wireframe);
+    S.jellies.forEach(j => j.setWireframe(S.wireframe));
+    toast(S.wireframe ? '已显示 384 四面体物理晶格' : '已隐藏物理晶格');
     JellySound.pop();
   };
 
@@ -489,7 +540,7 @@ function setupStage(id) {
   bindPointer(canvas, overlay, id);
   applyCam();
 
-  // 主循环
+  // 120Hz XPBD 渲染与更新主循环
   const clock = new THREE.Clock();
   let statT = 0;
   const loop = () => {
@@ -502,9 +553,38 @@ function setupStage(id) {
     }
     updateStrands(dt);
     if (S.dustSystem) updateDust(dt, t);
+
+    // 动态接触阴影与抓取标记跟随物理中心
+    if (S.stage && S.stage.shadowMesh && S.jellies.length > 0) {
+      const primary = S.jellies[0];
+      const p = primary.physics.position;
+      let totalX = 0, totalY = 0, totalZ = 0;
+      for (let i = 0; i < p.length; i += 3) {
+        totalX += p[i]; totalY += p[i + 1]; totalZ += p[i + 2];
+      }
+      const count = primary.physics.count;
+      const avgX = totalX / count;
+      const avgY = totalY / count;
+      const avgZ = totalZ / count;
+
+      S.stage.shadowMesh.position.x = avgX;
+      S.stage.shadowMesh.position.z = avgZ;
+
+      const alt = Math.max(0, avgY - 1.0);
+      S.stage.shadowMesh.scale.setScalar(1.0 + alt * 0.22);
+      S.stage.shadowMesh.material.opacity = Math.max(0.12, 0.85 - alt * 0.28);
+
+      if (primary.physics.grab && S.stage.grabMarker) {
+        S.stage.grabMarker.position.fromArray(primary.physics.grab.target);
+        S.stage.grabMarker.visible = true;
+      } else if (S.stage.grabMarker) {
+        S.stage.grabMarker.visible = false;
+      }
+    }
+
     stage.renderer.render(stage.scene, stage.camera);
     statT += dt;
-    if (statT > 0.25) { statT = 0; updateDataBar(id); }
+    if (statT > 0.15) { statT = 0; updateDataBar(id); }
   };
   loop();
   updateDataBar(id);
@@ -513,7 +593,6 @@ function setupStage(id) {
 function buildJellies(id) {
   const g = GAMES[id];
   const stage = S.stage;
-  // 清理旧的
   for (const j of S.jellies) {
     stage.scene.remove(j.group);
     j.dispose();
@@ -522,16 +601,54 @@ function buildJellies(id) {
   S.special = null;
 
   const built = g.build(S.colorId);
-  const jelly = new JellyBody(built.mesh, { firmness: 100 - S.softness * 75, damping: (1 - S.bounciness) * 50 });
+  const jelly = new JellyBody(built.mesh, {
+    firmness: 100 - S.softness * 75,
+    damping: (1 - S.bounciness) * 50,
+    jiggle: S.jiggle * 100
+  });
   jelly.group.position.y = built.restY || 0;
   stage.scene.add(jelly.group);
-  built.followers.forEach(f => { jelly.group.add(f.mesh); jelly.follow(f.mesh, f.vert, f.off); });
+
+  // 装配副网格（果皮等）
+  if (built.secondary) {
+    for (const sec of built.secondary) {
+      jelly.addSecondaryMesh(sec.mesh, sec.scale, sec.offset);
+    }
+  }
+
+  // 装配鱿鱼内脏器官
+  if (built.organs) {
+    jelly.setSquidOrgans(built.organs);
+  }
+
+  // 装配柔韧触手连续动态管道
+  if (built.tentacles) {
+    jelly.setTentacleMeshes(built.tentacles);
+  }
+
+  // 装配嵌入跟随物（果籽、骰子点等）
+  if (built.followers) {
+    built.followers.forEach(f => {
+      jelly.group.add(f.mesh);
+      jelly.follow(f.mesh, f.vert || f.restPos || f.embedding, f.off);
+    });
+  }
+
+  jelly.setWireframe(S.wireframe);
+  jelly.setSlow(S.slow);
+  jelly.setPaused(S.paused);
+
   S.jellies.push(jelly);
-  window.__J = S.jellies; // 调试钩子：手感/物理探针
+  window.__J = S.jellies;
   S.fleshColor = built.fleshColor;
 
   if (g.dice) initDice(jelly);
-  if (g.squid) initSquid(jelly);
+  if (g.squid) {
+    S.special = {
+      type: 'squid',
+      excite(v) { jelly.shake(v); }
+    };
+  }
   if (g.rubber) initRubber(jelly);
 }
 
@@ -574,9 +691,9 @@ function bindPointer(canvas, overlay, id) {
   const ndc = new THREE.Vector2();
   const stage = S.stage;
   const octx = overlay.getContext('2d');
-  let pdown = null;       // {x, y, id, hit}
+  let pdown = null;
   let pointers = new Map();
-  let swipe = null;       // 切一切轨迹
+  let swipe = null;
   let lastPinchAngle = null;
 
   const sizeOverlay = () => {
@@ -598,12 +715,12 @@ function bindPointer(canvas, overlay, id) {
     }
     return null;
   }
+
   function screenToWorldOnJellyPlane(cx, cy, depthRef) {
     const r = canvas.getBoundingClientRect();
     ndc.x = ((cx - r.left) / r.width) * 2 - 1;
     ndc.y = -((cy - r.top) / r.height) * 2 + 1;
     ray.setFromCamera(ndc, stage.camera);
-    // 与过 depthRef、法线朝相机的平面求交
     const n = new THREE.Vector3();
     stage.camera.getWorldDirection(n);
     const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(n, depthRef);
@@ -618,7 +735,7 @@ function bindPointer(canvas, overlay, id) {
     const hit = castAt(e.clientX, e.clientY);
     pdown = { x: e.clientX, y: e.clientY, hit, moved: false };
 
-    if (pointers.size === 2) { // 双指：记录角度用于扭转
+    if (pointers.size === 2) {
       const p = [...pointers.values()];
       lastPinchAngle = Math.atan2(p[1].y - p[0].y, p[1].x - p[0].x);
       return;
@@ -637,9 +754,11 @@ function bindPointer(canvas, overlay, id) {
         if (g.squid && S.special) S.special.excite(1.2);
         if (g.dice) rollDice();
       } else {
-        // 捏/揉：抓取
         const n = hit.jelly.grabPoint(hit.point, 0.95);
-        if (n > 0) { hit.jelly._grabPt = hit.point.clone(); JellySound.squeeze(0.7); }
+        if (n > 0) {
+          hit.jelly._grabPt = hit.point.clone();
+          JellySound.squeeze(0.7);
+        }
       }
     }
   });
@@ -648,7 +767,6 @@ function bindPointer(canvas, overlay, id) {
     const prev = pointers.get(e.pointerId);
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (!pdown || e.pointerId !== [...pointers.keys()][0]) {
-      // 双指扭转
       if (pointers.size === 2 && lastPinchAngle !== null) {
         const p = [...pointers.values()];
         const a = Math.atan2(p[1].y - p[0].y, p[1].x - p[0].x);
@@ -670,20 +788,10 @@ function bindPointer(canvas, overlay, id) {
       const j = pdown.hit.jelly;
       const w = screenToWorldOnJellyPlane(e.clientX, e.clientY, pdown.hit.jelly._grabPt);
       if (w) {
-        const md = new THREE.Vector3().subVectors(w, pdown.hit.jelly._grabPt);
-        // 把增量转换为本地拖拽
-        const inv = new THREE.Matrix4().copy(j.mesh.matrixWorld).invert();
-        const lp0 = pdown.hit.jelly._grabPt.clone().applyMatrix4(inv);
-        const lp1 = w.clone().applyMatrix4(inv);
-        const ddx = lp1.x - lp0.x, ddy = lp1.y - lp0.y, ddz = lp1.z - lp0.z;
-        j.dragLocal(ddx, ddy, ddz);
+        j.dragTo(w);
         pdown.hit.jelly._grabPt.copy(w);
-        if (j.maxStretch === undefined) j.maxStretch = 0;
-        const s = Math.hypot(ddx, ddy, ddz);
-        if (s > j.maxStretch) j.maxStretch = s;
       }
     } else if (!pdown.hit) {
-      // 空白处：旋转视角
       S.cam.theta -= (e.clientX - prev.x) * 0.006;
       S.cam.phi = clamp(S.cam.phi - (e.clientY - prev.y) * 0.004, 0.55, 1.45);
       applyCam();
@@ -731,11 +839,9 @@ function bindPointer(canvas, overlay, id) {
   }
 
   function doCutSwipe(sw, id) {
-    const g = GAMES[id];
     const pts = sw.pts;
     const a = pts[0], b = pts[pts.length - 1];
     if (Math.hypot(b.x - a.x, b.y - a.y) < 40) return;
-    // 屏幕线段 → 世界（取果冻中心深度平面）
     const j = sw.jelly || S.jellies[0];
     if (!j) return;
     const c = new THREE.Vector3();
@@ -743,7 +849,6 @@ function bindPointer(canvas, overlay, id) {
     const w1 = screenToWorldOnJellyPlane(a.x, a.y, c);
     const w2 = screenToWorldOnJellyPlane(b.x, b.y, c);
     if (!w1 || !w2) return;
-    // 落刀闪光
     flashCut(a, b, canvas);
     const res = cutJelly(j, w1, w2, S.fleshColor || '#e0445a');
     if (res) {
@@ -752,7 +857,7 @@ function bindPointer(canvas, overlay, id) {
       S.jellies.push(res[0], res[1]);
       S.cuts++;
       JellySound.slice();
-      toast('咔嚓！分成两块啦');
+      toast('咔嚓！切开两半，体积守恒～');
       const cc = $('#cut-count');
       if (cc) cc.textContent = `已切成 ${S.jellies.length} 块`;
     } else {
@@ -772,9 +877,6 @@ function bindPointer(canvas, overlay, id) {
     setTimeout(clearSwipe, 180);
   }
 }
-/* ============================================================
- * app.js（末）— 特殊玩法、数据条、动作
- * ============================================================ */
 
 /* ---------------- 拉丝（晃一晃的果冻丝） ---------------- */
 function spawnStrands(jelly, n = 10) {
@@ -785,15 +887,15 @@ function spawnStrands(jelly, n = 10) {
   });
   const arr = jelly.pos.array;
   for (let i = 0; i < n; i++) {
-    const vi = Math.floor(Math.random() * jelly.count);
+    const vi = Math.floor(Math.random() * (jelly.pos.count || 100));
     const i3 = vi * 3;
     const m = new THREE.Mesh(new THREE.CapsuleGeometry(0.035, 0.3, 3, 8), mat);
-    const wp = new THREE.Vector3(arr[i3], arr[i3+1], arr[i3+2]).applyMatrix4(jelly.mesh.matrixWorld);
+    const wp = new THREE.Vector3(arr[i3] || 0, (arr[i3+1] || 0) + 0.5, arr[i3+2] || 0).applyMatrix4(jelly.mesh.matrixWorld);
     const lp = jelly.group.worldToLocal(wp.clone());
     m.position.copy(lp);
-    m.rotation.set(Math.random()*3, Math.random()*3, 0);
+    m.rotation.set(Math.random() * 3, Math.random() * 3, 0);
     jelly.group.add(m);
-    S.strands.push({ mesh: m, life: 1, vy: 0.9 + Math.random()*0.7, jelly });
+    S.strands.push({ mesh: m, life: 1, vy: 0.9 + Math.random() * 0.7, jelly });
   }
 }
 function updateStrands(dt) {
@@ -807,6 +909,7 @@ function updateStrands(dt) {
     if (s.life <= 0) {
       s.mesh.parent && s.mesh.parent.remove(s.mesh);
       s.mesh.geometry.dispose();
+      s.mesh.material.dispose();
       S.strands.splice(i, 1);
     }
   }
@@ -818,9 +921,9 @@ function makeDust(scene) {
   const geo = new THREE.BufferGeometry();
   const p = new Float32Array(n * 3);
   for (let i = 0; i < n; i++) {
-    p[i*3] = (Math.random()-0.5) * 9;
-    p[i*3+1] = Math.random() * 5 - 1.5;
-    p[i*3+2] = (Math.random()-0.5) * 6;
+    p[i*3] = (Math.random() - 0.5) * 9;
+    p[i*3+1] = Math.random() * 5 - 0.5;
+    p[i*3+2] = (Math.random() - 0.5) * 6;
   }
   geo.setAttribute('position', new THREE.BufferAttribute(p, 3));
   const mat = new THREE.PointsMaterial({ color: 0xffe9c4, size: 0.055, transparent: true, opacity: 0.65, depthWrite: false });
@@ -843,9 +946,11 @@ function updateDust(dt, t) {
 function initDice(jelly) {
   S.special = {
     type: 'dice',
-    vel: new THREE.Vector3(), angVel: new THREE.Vector3(),
-    sleeping: true, face: 5,
-    floorY: -1.55 + 0.85,
+    vel: new THREE.Vector3(),
+    angVel: new THREE.Vector3(),
+    sleeping: true,
+    face: 5,
+    floorY: 0.0,
   };
   jelly.group.position.y = 0.35;
 }
@@ -855,8 +960,8 @@ function rollDice() {
   const j = S.jellies[0]; if (!j) return;
   sp.sleeping = false;
   sp.face = null;
-  sp.vel.set((Math.random()-0.5)*5, 5.5 + Math.random()*2.5, (Math.random()-0.5)*3.5);
-  sp.angVel.set((Math.random()-0.5)*9, (Math.random()-0.5)*9, (Math.random()-0.5)*9);
+  sp.vel.set((Math.random() - 0.5) * 5, 5.5 + Math.random() * 2.5, (Math.random() - 0.5) * 3.5);
+  sp.angVel.set((Math.random() - 0.5) * 9, (Math.random() - 0.5) * 9, (Math.random() - 0.5) * 9);
   S.throws++;
   JellySound.rattle(6);
   $('#dice-result').innerHTML = '摇起来…';
@@ -867,14 +972,13 @@ function updateDice(dt) {
   if (!sp || !j || sp.sleeping) return;
   const g = j.group;
   sp.vel.y -= 13 * dt;
-  // 持续角阻尼 + 空气阻尼
   sp.angVel.multiplyScalar(Math.pow(0.25, dt));
   sp.vel.x *= Math.pow(0.5, dt); sp.vel.z *= Math.pow(0.5, dt);
   g.position.addScaledVector(sp.vel, dt);
-  _e.set(sp.angVel.x*dt, sp.angVel.y*dt, sp.angVel.z*dt);
+  _e.set(sp.angVel.x * dt, sp.angVel.y * dt, sp.angVel.z * dt);
   _dq.setFromEuler(_e);
   g.quaternion.multiply(_dq);
-  // 地面弹跳
+
   if (g.position.y < sp.floorY) {
     g.position.y = sp.floorY;
     if (Math.abs(sp.vel.y) > 1.2) { JellySound.thock(); j.shake(0.7); }
@@ -882,20 +986,19 @@ function updateDice(dt) {
     sp.vel.x *= 0.72; sp.vel.z *= 0.72;
     sp.angVel.multiplyScalar(0.62);
   }
-  // 围栏
-  if (Math.abs(g.position.x) > 2.2) { g.position.x = Math.sign(g.position.x)*2.2; sp.vel.x *= -0.6; }
-  if (Math.abs(g.position.z) > 1.6) { g.position.z = Math.sign(g.position.z)*1.6; sp.vel.z *= -0.6; }
+  if (Math.abs(g.position.x) > 2.2) { g.position.x = Math.sign(g.position.x) * 2.2; sp.vel.x *= -0.6; }
+  if (Math.abs(g.position.z) > 1.6) { g.position.z = Math.sign(g.position.z) * 1.6; sp.vel.z *= -0.6; }
+
   const sp2 = sp.vel.length(), sa = sp.angVel.length();
   const onFloor = g.position.y <= sp.floorY + 0.05;
   if (sp2 < 0.7 && sa < 1.6 && onFloor) {
     sp.sleeping = true;
-    // 对齐到最近的 90°
-    const e = new THREE.Euler().setFromQuaternion(g.quaternion);
-    e.x = Math.round(e.x / (Math.PI/2)) * (Math.PI/2);
-    e.y = Math.round(e.y / (Math.PI/2)) * (Math.PI/2);
-    e.z = Math.round(e.z / (Math.PI/2)) * (Math.PI/2);
-    g.quaternion.setFromEuler(e);
-    // 判定顶面
+    const euler = new THREE.Euler().setFromQuaternion(g.quaternion);
+    euler.x = Math.round(euler.x / (Math.PI / 2)) * (Math.PI / 2);
+    euler.y = Math.round(euler.y / (Math.PI / 2)) * (Math.PI / 2);
+    euler.z = Math.round(euler.z / (Math.PI / 2)) * (Math.PI / 2);
+    g.quaternion.setFromEuler(euler);
+
     const ups = [
       { n: new THREE.Vector3(0,0,1), v: 1 }, { n: new THREE.Vector3(0,0,-1), v: 6 },
       { n: new THREE.Vector3(1,0,0), v: 2 }, { n: new THREE.Vector3(-1,0,0), v: 5 },
@@ -910,117 +1013,6 @@ function updateDice(dt) {
     JellySound.thock();
     j.shake(0.5);
     $('#dice-result').innerHTML = `🎲 <b>${best} 点！</b>${best >= 5 ? '今天运气爆棚' : best >= 3 ? '还不错' : '再摇一次转转运'}`;
-  }
-}
-
-/* ---------------- 鱿鱼触手 ---------------- */
-// 连续管状触手：固定拓扑 tube，每帧按链条点重算顶点（无断节）
-function makeTentacleMesh(rings, radial, mat) {
-  const geo = new THREE.BufferGeometry();
-  const nv = rings * radial;
-  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(nv * 3), 3));
-  const idx = [];
-  for (let i = 0; i < rings - 1; i++) {
-    for (let j = 0; j < radial; j++) {
-      const a = i * radial + j, b = i * radial + (j + 1) % radial;
-      const c = (i + 1) * radial + j, d = (i + 1) * radial + (j + 1) % radial;
-      idx.push(a, b, c, b, d, c);
-    }
-  }
-  geo.setIndex(idx);
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.frustumCulled = false;
-  return mesh;
-}
-const _tN = new THREE.Vector3(), _tB = new THREE.Vector3(), _tT = new THREE.Vector3(), _tC = new THREE.Vector3();
-function updateTentacleMesh(mesh, pts, radial, radiusFn) {
-  const pos = mesh.geometry.attributes.position;
-  const arr = pos.array;
-  const n = pts.length;
-  let px = 0, py = 0, pz = 1; // 上一帧法线（做简单平行传输防扭转）
-  const stored = mesh.userData.frame || (mesh.userData.frame = [0, 0, 1]);
-  px = stored[0]; py = stored[1]; pz = stored[2];
-  for (let i = 0; i < n; i++) {
-    _tC.copy(pts[i].p);
-    const a = pts[Math.max(0, i - 1)].p, b = pts[Math.min(n - 1, i + 1)].p;
-    _tT.subVectors(b, a).normalize();
-    // 法线 = 上一法线 - 切向分量（平行传输）
-    _tN.set(px, py, pz).addScaledVector(_tT, -_tT.dot(_tN)).normalize();
-    if (_tN.lengthSq() < 0.5) _tN.set(1, 0, 0).addScaledVector(_tT, -_tT.x).normalize();
-    _tB.crossVectors(_tT, _tN).normalize();
-    px = _tN.x; py = _tN.y; pz = _tN.z;
-    const r = radiusFn(i);
-    for (let j = 0; j < radial; j++) {
-      const th = j / radial * Math.PI * 2;
-      const co = Math.cos(th), si = Math.sin(th);
-      const o = (i * radial + j) * 3;
-      arr[o]   = _tC.x + (_tN.x * co + _tB.x * si) * r;
-      arr[o+1] = _tC.y + (_tN.y * co + _tB.y * si) * r;
-      arr[o+2] = _tC.z + (_tN.z * co + _tB.z * si) * r;
-    }
-  }
-  stored[0] = px; stored[1] = py; stored[2] = pz;
-  pos.needsUpdate = true;
-  mesh.geometry.computeVertexNormals();
-}
-function initSquid(jelly) {
-  const group = jelly.group;
-  const chains = [];
-  const N = 8, SEG = 8, SEG_LEN = 0.2, RADIAL = 8;
-  // 触手材质：实心果冻粉（低透光，显圆润）
-  const mat = new THREE.MeshPhysicalMaterial({
-    color: 0xf78ba4, transmission: 0.0, roughness: 0.22, thickness: 1.4,
-    clearcoat: 1.0, clearcoatRoughness: 0.08, envMapIntensity: 1.1,
-  });
-  const radiusFn = (i) => 0.17 - i * 0.016; // 根部粗、尖端细
-  for (let c = 0; c < N; c++) {
-    const a = c / N * Math.PI * 2 + 0.2;
-    const ax = Math.cos(a) * 0.34, az = Math.sin(a) * 0.34;
-    const pts = [];
-    for (let s = 0; s <= SEG; s++) {
-      // 自然下垂 + 轻微内扣
-      const inward = 1 - s * 0.045;
-      const p = new THREE.Vector3(ax * inward, -1.0 - s * SEG_LEN, az * inward);
-      pts.push({ p: p.clone(), pp: p.clone() });
-    }
-    const mesh = makeTentacleMesh(SEG + 1, RADIAL, mat);
-    // 封顶：首尾加半球盖（用法线外扩的环近似）
-    group.add(mesh);
-    updateTentacleMesh(mesh, pts, RADIAL, radiusFn);
-    chains.push({ pts, mesh, phase: Math.random() * 6.28 });
-  }
-  S.special = { type: 'squid', chains, excite(v) { this.amp = Math.min(2.2, (this.amp || 0) + v); } };
-}
-function updateSquid(dt, t) {
-  const sp = S.special;
-  if (!sp || sp.type !== 'squid') return;
-  sp.amp = Math.max(0.25, (sp.amp || 0.25) - dt * 1.4);
-  for (const ch of sp.chains) {
-    const pts = ch.pts;
-    for (let i = 1; i < pts.length; i++) {
-      const pt = pts[i];
-      const vx = (pt.p.x - pt.pp.x) * 0.96, vy = (pt.p.y - pt.pp.y) * 0.96, vz = (pt.p.z - pt.pp.z) * 0.96;
-      pt.pp.copy(pt.p);
-      const sway = Math.sin(t * 2.4 + ch.phase + i * 0.7) * 0.35 * sp.amp;
-      pt.p.x += vx + sway * dt * 8;
-      pt.p.y += vy - 1.6 * dt;
-      pt.p.z += vz + Math.cos(t * 2.1 + ch.phase + i * 0.6) * 0.3 * sp.amp * dt * 8;
-    }
-    // 约束
-    for (let k = 0; k < 3; k++) {
-      for (let i = 0; i < pts.length - 1; i++) {
-        const a = pts[i].p, b = pts[i+1].p;
-        const d = a.distanceTo(b) || 1e-5;
-        const diff = (d - 0.2) / d;
-        if (i > 0) { a.lerp(b, 0); }
-        const corr = new THREE.Vector3().subVectors(b, a).multiplyScalar(diff * (i === 0 ? 1 : 0.5));
-        if (i === 0) b.sub(corr); else { a.addScaledVector(corr, 0.5); b.addScaledVector(corr, -0.5); }
-      }
-    }
-  }
-  // 渲染：连续 tube 跟随链条
-  for (const ch of sp.chains) {
-    updateTentacleMesh(ch.mesh, ch.pts, 8, (i) => 0.17 - i * 0.016);
   }
 }
 
@@ -1045,7 +1037,7 @@ function addBand() {
   sp.bands.push({ mesh: band, t: 0, target });
   JellySound.twang();
   j.poke(new THREE.Vector3(0, 0.4, 1.2), new THREE.Vector3(0, -1.4, -0.6), 2.2);
-  // 越勒越扁
+
   const squash = Math.max(0.78, 1 - sp.bands.length * 0.012);
   j.group.scale.y += (squash - j.group.scale.y) * 0.9;
   const bt = $('#band-top'); if (bt) bt.innerHTML = `<b style="font-size:18px">${sp.bands.length}</b> 根橡皮皮筋`;
@@ -1070,7 +1062,6 @@ function updateRubber(dt) {
 function updateSpecials(id, dt, t) {
   const g = GAMES[id];
   if (g.dice) updateDice(dt);
-  if (g.squid) updateSquid(dt, t);
   if (g.rubber) updateRubber(dt);
 }
 
@@ -1079,11 +1070,16 @@ let _smE = 0;
 function updateDataBar(id) {
   const g = GAMES[id];
   if (!g) return;
-  let pieces = S.jellies.length, mass = g.baseMass, vol = 100, energy = 0;
+  let pieces = S.jellies.length, mass = g.baseMass, energy = 0;
   for (const j of S.jellies) energy += j.energy;
   _smE += (energy - _smE) * 0.25;
   mass = Math.max(1, g.baseMass * (1 - S.cuts * 0.02));
-  vol = Math.max(62, 100 - S.cuts * 1.6);
+
+  let totalStretch = 0;
+  for (const j of S.jellies) totalStretch += j.stretch || 0;
+  const avgStretch = S.jellies.length ? (totalStretch / S.jellies.length) : 0;
+  const vol = Math.max(95.0, Math.min(100.0, 100.0 - avgStretch * 0.03 - S.cuts * 0.4));
+
   const vals = g.dataLabels.map((k, i) => {
     const u = g.dataUnits[i] || '';
     if (k.includes('块数')) return `${pieces}<small>块</small>`;
@@ -1093,7 +1089,7 @@ function updateDataBar(id) {
     if (k.includes('体积')) return `${vol.toFixed(1)}<small>%</small>`;
     if (k.includes('能量')) {
       const ev = _smE * 2.4;
-      return `${(ev < 1.0 ? 0 : ev).toFixed(ev > 10 ? 1 : 2)}<small>${u || '微焦'}</small>`;
+      return `${(ev < 0.1 ? 0 : ev).toFixed(ev > 10 ? 1 : 2)}<small>${u || '微焦'}</small>`;
     }
     return '–';
   });
@@ -1108,7 +1104,7 @@ function doAction(act) {
     case 'shake':
       if (!j) break;
       JellySound.wobble();
-      j.wave(1.6, performance.now() / 1000);
+      j.shake(1.5);
       spawnStrands(j, 9);
       toast('晃一晃，松弛一下～');
       break;
@@ -1126,6 +1122,7 @@ function doAction(act) {
       break;
     case 'pause': {
       S.paused = !S.paused;
+      S.jellies.forEach(jj => jj.setPaused(S.paused));
       const btn = document.querySelector('[data-act="pause"]');
       if (btn) btn.innerHTML = `${icon(S.paused ? 'play' : 'pause', 20)}${S.paused ? '继续' : '暂停'}`;
       toast(S.paused ? '已暂停，果冻定住了' : '继续开玩');
@@ -1149,7 +1146,7 @@ function doAction(act) {
       if (j) {
         const c = new THREE.Vector3();
         j.group.getWorldPosition(c);
-        j.poke(c, new THREE.Vector3((Math.random()-0.5)*3, 2.5, (Math.random()-0.5)*2), 2.4);
+        j.poke(c, new THREE.Vector3((Math.random() - 0.5) * 3, 2.5, (Math.random() - 0.5) * 2), 2.4);
         JellySound.boing(1);
         if (g.squid && S.special) S.special.excite(1.5);
       }
@@ -1162,7 +1159,7 @@ function doAction(act) {
       const t0 = performance.now();
       const anim = () => {
         const t = Math.min(1, (performance.now() - t0) / 650);
-        const e = t < 0.5 ? 2*t*t : 1 - Math.pow(-2*t + 2, 2) / 2;
+        const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
         grp.rotation.x = from + (to - from) * e;
         if (t < 1) requestAnimationFrame(anim);
       };
@@ -1180,14 +1177,17 @@ function applyMold(kind) {
   const g = GAMES[S.gameId];
   if (!g.buildMold) return;
   JellySound.mold();
-  // 清理现有
   for (const j of S.jellies) {
     S.stage.scene.remove(j.group);
     try { j.dispose(); } catch (e) {}
   }
   S.jellies = [];
   const built = g.buildMold(kind, S.colorId);
-  const jelly = new JellyBody(built.mesh, { firmness: 100 - S.softness * 75, damping: (1 - S.bounciness) * 50 });
+  const jelly = new JellyBody(built.mesh, {
+    firmness: 100 - S.softness * 75,
+    damping: (1 - S.bounciness) * 50,
+    jiggle: S.jiggle * 100
+  });
   S.stage.scene.add(jelly.group);
   S.jellies.push(jelly);
   S.cuts = 0;

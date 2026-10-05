@@ -1,134 +1,144 @@
 /* ============================================================
- * three-jelly.js — Three.js 果冻引擎
- * MeshPhysicalMaterial 透光果冻 + 顶点级软体变形 + 裁剪面切割
+ * three-jelly.js — Three.js 顶级透光果冻引擎
+ * 120Hz XPBD 晶格 + 384 四面体体积守恒 + MeshPhysicalMaterial 色散透光
  * ============================================================ */
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { JellyPhysicsXPBD } from './physics.js';
+import { bindGeometryToPhysics, FLAVOR_PRESETS } from './models.js';
 
 const V3 = (x=0,y=0,z=0) => new THREE.Vector3(x,y,z);
-const TAU = Math.PI * 2;
-const smooth01 = (v) => v * v * (3 - 2 * v);
 
-/* ---------- 程序生成摄影棚环境贴图（5 块柔光箱） ----------
- * 移植自 ceramic-bot-3d/reference/lighting/studio-scene.js
- * 果冻表面漂亮反射的来源 */
-function buildStudioEnvironment() {
-  const width = 384, height = 192;
-  const data = new Float32Array(width * height * 4);
-  const softboxes = [
-    { direction: new THREE.Vector3(0.45, 0.85, 0.35), intensity: 5.2, exponent: 16, color: [1, 0.98, 0.94] },
-    { direction: new THREE.Vector3(-0.85, 0.25, 0.15), intensity: 1.5, exponent: 7, color: [0.82, 0.9, 1] },
-    { direction: new THREE.Vector3(0.15, 0.35, -0.95), intensity: 2.6, exponent: 12, color: [1, 0.86, 0.66] },
-    { direction: new THREE.Vector3(0.95, 0.05, 0.3), intensity: 0.9, exponent: 9, color: [1, 0.95, 0.85] },
-    { direction: new THREE.Vector3(0, -1, 0), intensity: 0.5, exponent: 4, color: [1, 0.93, 0.82] },
+/* ---------- 摄影棚环境贴图生成 (RoomEnvironment + 3 块专业柔光箱) ---------- */
+export function buildStudioEnvironment(renderer) {
+  const environment = new RoomEnvironment();
+  const panelGeom = new THREE.PlaneGeometry(1, 1);
+  const panelMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(7, 7, 7), side: THREE.DoubleSide });
+
+  // 3 块高光摄影棚柔光箱
+  const panels = [
+    { pos: [-3.5, 4.5, 2.5], scale: [1.6, 4.5, 1] },
+    { pos: [3.8, 4.2, -3.2], scale: [3.0, 3.5, 1] },
+    { pos: [0.0, 6.5, 0.0],  scale: [3.5, 2.8, 1] }
   ];
-  for (const s of softboxes) s.direction.normalize();
-  const direction = new THREE.Vector3();
-  for (let y = 0; y < height; y++) {
-    const phi = ((y + 0.5) / height) * Math.PI;
-    for (let x = 0; x < width; x++) {
-      const theta = ((x + 0.5) / width) * TAU;
-      direction.set(-Math.sin(phi) * Math.sin(theta), Math.cos(phi), -Math.sin(phi) * Math.cos(theta));
-      const up = direction.y * 0.5 + 0.5;
-      let red = THREE.MathUtils.lerp(0.32, 1.05, smooth01(up)) * 0.9;
-      let green = red * 0.985, blue = red * 0.94;
-      for (const s of softboxes) {
-        const w = s.intensity * Math.pow(Math.max(direction.dot(s.direction), 0), s.exponent);
-        red += w * s.color[0]; green += w * s.color[1]; blue += w * s.color[2];
-      }
-      const i = (y * width + x) * 4;
-      data[i] = red; data[i+1] = green; data[i+2] = blue; data[i+3] = 1;
-    }
+
+  for (const p of panels) {
+    const mesh = new THREE.Mesh(panelGeom, panelMat);
+    mesh.position.set(...p.pos);
+    mesh.scale.set(...p.scale);
+    mesh.lookAt(0, 0, 0);
+    environment.add(mesh);
   }
-  const env = new THREE.DataTexture(data, width, height, THREE.RGBAFormat, THREE.FloatType);
-  env.mapping = THREE.EquirectangularReflectionMapping;
-  env.magFilter = THREE.LinearFilter;
-  env.minFilter = THREE.LinearFilter;
-  env.needsUpdate = true;
-  return env;
-}
 
-/* ---------- 柔和接触阴影 ---------- */
-function buildBlushTexture() {
-  const size = 256;
-  const c = document.createElement('canvas');
-  c.width = c.height = size;
-  const ctx = c.getContext('2d');
-  const g = ctx.createRadialGradient(size/2, size/2, 6, size/2, size/2, size/2);
-  g.addColorStop(0, 'rgba(107, 92, 68, 0.48)');
-  g.addColorStop(0.45, 'rgba(107, 92, 68, 0.22)');
-  g.addColorStop(1, 'rgba(107, 92, 68, 0)');
-  ctx.fillStyle = g; ctx.fillRect(0, 0, size, size);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
-
-/* ---------- 渲染舞台 ---------- */
-export function createStage(canvas) {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-  renderer.localClippingEnabled = true;
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.85;
-
-  const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xfaf3e8);
-
-  const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 100);
-  camera.position.set(0, 2.6, 7.4);
-  camera.lookAt(0, 0.2, 0);
-
-  // 摄影棚环境反射（果冻"水光"关键）
-  const environment = buildStudioEnvironment();
   const pmrem = new THREE.PMREMGenerator(renderer);
-  scene.environment = pmrem.fromEquirectangular(environment).texture;
+  const envTexture = pmrem.fromScene(environment, 0.04, 0.1, 100).texture;
+
   environment.dispose();
+  panelGeom.dispose();
+  panelMat.dispose();
   pmrem.dispose();
 
-  // 三点布光：暖主光（2048 软阴影）+ 冷补光 + 暖轮廓光
-  const key = new THREE.DirectionalLight(0xffead4, 1.95);
-  key.position.set(3.2, 4.4, 2.6);
-  key.castShadow = true;
-  key.shadow.mapSize.set(2048, 2048);
-  key.shadow.camera.left = -2.6;
-  key.shadow.camera.right = 2.6;
-  key.shadow.camera.top = 2.6;
-  key.shadow.camera.bottom = -2.6;
-  key.shadow.camera.near = 0.5;
-  key.shadow.camera.far = 14;
-  key.shadow.bias = -0.0002;
-  key.shadow.normalBias = 0.02;
-  key.shadow.radius = 4;
-  scene.add(key);
+  return envTexture;
+}
 
-  const fill = new THREE.DirectionalLight(0xcadcf2, 0.36);
-  fill.position.set(-3.4, 1.8, 1.6);
-  scene.add(fill);
+/* ---------- 动态接触阴影贴图 ---------- */
+function buildContactShadowTexture() {
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const grad = ctx.createRadialGradient(size / 2, size / 2, 12, size / 2, size / 2, size / 2);
+  grad.addColorStop(0, 'rgba(15, 23, 42, 0.52)');
+  grad.addColorStop(0.35, 'rgba(15, 23, 42, 0.30)');
+  grad.addColorStop(0.7, 'rgba(15, 23, 42, 0.09)');
+  grad.addColorStop(1, 'rgba(15, 23, 42, 0.0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
 
-  const rim = new THREE.DirectionalLight(0xffc98f, 0.65);
-  rim.position.set(-1.4, 2.2, -3.6);
-  scene.add(rim);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
 
-  // 地面：真实阴影 + 柔和接触阴影（去悬浮感）
-  const ground = new THREE.Mesh(
-    new THREE.CircleGeometry(16, 48),
-    new THREE.ShadowMaterial({ opacity: 0.18 })
+/* ---------- 渲染舞台 (Studio Stage) ---------- */
+export function createStage(canvas) {
+  const renderer = new THREE.WebGLRenderer({
+    canvas,
+    antialias: true,
+    alpha: false,
+    powerPreference: 'high-performance'
+  });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2.0));
+  renderer.localClippingEnabled = true;
+  renderer.shadowMap.enabled = false; // 使用高精度程序化动态接触阴影
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.16;
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color('#e2e8f0');
+  scene.fog = new THREE.Fog('#e2e8f0', 14, 32);
+
+  const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 60);
+  camera.position.set(0, 2.6, 7.2);
+  camera.lookAt(0, 0.9, 0);
+
+  // 摄影棚柔光环境反射
+  const envTexture = buildStudioEnvironment(renderer);
+  scene.environment = envTexture;
+  scene.environmentIntensity = 0.95;
+
+  // 影棚灯光：半球光 + 主光 + 轮廓光
+  const hemi = new THREE.HemisphereLight('#f8fafc', '#cbd5e1', 1.9);
+  scene.add(hemi);
+
+  const keyLight = new THREE.DirectionalLight('#fffbeb', 3.4);
+  keyLight.position.set(-3.2, 7.5, 4.5);
+  scene.add(keyLight);
+
+  const rimLight = new THREE.DirectionalLight('#e0f2fe', 1.8);
+  rimLight.position.set(4.2, 3.8, -3.5);
+  scene.add(rimLight);
+
+  // 极简微磨砂影棚台面
+  const floorGeom = new THREE.PlaneGeometry(160, 160);
+  const floorMat = new THREE.MeshStandardMaterial({
+    color: '#cbd5e1',
+    roughness: 0.88,
+    metalness: 0.0
+  });
+  const floor = new THREE.Mesh(floorGeom, floorMat);
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.y = -0.005;
+  scene.add(floor);
+
+  // 影棚网格（超淡）
+  const grid = new THREE.GridHelper(40, 80, '#94a3b8', '#cbd5e1');
+  grid.position.y = 0.001;
+  grid.material.transparent = true;
+  grid.material.opacity = 0.07;
+  grid.material.depthWrite = false;
+  scene.add(grid);
+
+  // 动态接触阴影 Plane
+  const shadowMat = new THREE.MeshBasicMaterial({
+    map: buildContactShadowTexture(),
+    transparent: true,
+    depthWrite: false
+  });
+  const shadowMesh = new THREE.Mesh(new THREE.PlaneGeometry(4.8, 4.8), shadowMat);
+  shadowMesh.rotation.x = -Math.PI / 2;
+  shadowMesh.position.y = 0.003;
+  scene.add(shadowMesh);
+
+  // 抓取指示小球
+  const grabMarker = new THREE.Mesh(
+    new THREE.SphereGeometry(0.045, 16, 12),
+    new THREE.MeshBasicMaterial({ color: '#ffffff', depthTest: false })
   );
-  ground.rotation.x = -Math.PI / 2;
-  ground.position.y = -1.62;
-  ground.receiveShadow = true;
-  scene.add(ground);
-
-  const blush = new THREE.Mesh(
-    new THREE.PlaneGeometry(5.2, 5.2),
-    new THREE.MeshBasicMaterial({ map: buildBlushTexture(), transparent: true, depthWrite: false })
-  );
-  blush.rotation.x = -Math.PI / 2;
-  blush.position.set(0, -1.618, 0);
-  scene.add(blush);
+  grabMarker.visible = false;
+  grabMarker.renderOrder = 999;
+  scene.add(grabMarker);
 
   function resize() {
     const r = canvas.getBoundingClientRect();
@@ -138,208 +148,346 @@ export function createStage(canvas) {
     camera.updateProjectionMatrix();
   }
 
-  return { renderer, scene, camera, resize };
+  return { renderer, scene, camera, resize, shadowMesh, grabMarker };
 }
 
-/* ---------- 果冻材质（陶瓷棚拍配方 + transmission） ---------- */
+/* ---------- 顶级透光色散果冻材质 ---------- */
 export function jellyMaterial(color, opts = {}) {
-  const m = new THREE.MeshPhysicalMaterial({
-    color: new THREE.Color(color),
-    transmission: opts.transmission ?? 0.6,
-    thickness: opts.thickness ?? 1.8,
-    roughness: opts.roughness ?? 0.18,
-    ior: 1.4,
-    clearcoat: 1.0,
-    clearcoatRoughness: opts.clearcoatRoughness ?? 0.05,
-    specularIntensity: 1.2,
-    attenuationColor: new THREE.Color(opts.attenuation || color),
-    attenuationDistance: opts.attenuationDistance ?? 2.6,
+  const c = new THREE.Color(color || '#ffe4e6');
+  const att = opts.attenuation ? new THREE.Color(opts.attenuation) : c;
+
+  const params = {
+    color: opts.baseColor ? new THREE.Color(opts.baseColor) : (opts.transmission ? new THREE.Color('#ffe4e6') : c),
+    transmission: opts.transmission ?? 0.98,
+    thickness: opts.thickness ?? 2.8,
+    roughness: opts.roughness ?? 0.07,
+    metalness: opts.metalness ?? 0.0,
+    ior: opts.ior ?? 1.40,
+    clearcoat: opts.clearcoat ?? 1.0,
+    clearcoatRoughness: opts.clearcoatRoughness ?? 0.03,
+    attenuationColor: att,
+    attenuationDistance: opts.attenuationDistance ?? 0.65,
     vertexColors: !!opts.vertexColors,
     map: opts.map || null,
-    side: THREE.FrontSide,
-  });
-  m.envMapIntensity = opts.envMapIntensity ?? 1.1;
-  return m;
+    side: opts.side ?? THREE.FrontSide,
+  };
+  if ('dispersion' in THREE.MeshPhysicalMaterial.prototype) {
+    params.dispersion = opts.dispersion ?? 0.058;
+  }
+  const mat = new THREE.MeshPhysicalMaterial(params);
+  mat.dispersion = opts.dispersion ?? 0.058;
+  mat.envMapIntensity = opts.envMapIntensity ?? 1.3;
+  return mat;
 }
 
-
+/* ============================================================
+ * JellyBody — 满血 XPBD 果冻刚柔体对象
+ * 120Hz 亚步长物理驱动、384 四面体保体积、支持从属网格与动态触手
+ * ============================================================ */
 export class JellyBody {
   constructor(mesh, opts = {}) {
     this.mesh = mesh;
     this.group = new THREE.Group();
     this.group.add(mesh);
     this.cap = null;
+    this.clips = [];
+
+    // 120Hz XPBD 软体晶格核心
+    this.physics = new JellyPhysicsXPBD({
+      gridSize: 5,
+      firmness: opts.firmness ?? 55,
+      damping: opts.damping ?? 24,
+      jiggle: opts.jiggle ?? 75,
+      floorY: opts.floorY ?? 0.038,
+      initialDropHeight: opts.initialDropHeight ?? 1.85
+    });
+
+    this.vel = this.physics.velocity;
+    this.count = this.physics.count;
     this.pos = mesh.geometry.attributes.position;
-    this.count = this.pos.count;
-    this.rest = new Float32Array(this.pos.array);
-    this.vel = new Float32Array(this.count * 3);
-    this.k = opts.k ?? 120;          // 回弹刚度
-    this.damping = opts.damping ?? 6.5;
-    this.cohesion = opts.cohesion ?? 26; // 邻域黏合
-    this.neighbors = buildNeighbors(this.pos, this.rest);
-    this.grabbed = new Map();        // idx -> {target:Vector3, strength}
-    this.followers = [];             // {obj, vert, offset:Vector3}
-    this.clips = [];                 // clip planes（切割后）
-    this.externalForce = V3();
+    this.pos.setUsage(THREE.DynamicDrawUsage);
+
+    // 将视觉几何体三线性嵌入到 [-1, 1] 物理晶格空间中
+    const binding = bindGeometryToPhysics(mesh.geometry, this.physics, opts.scale ?? 1.0, opts.offset);
+    this.mainBinding = { geometry: mesh.geometry, ...binding };
+    this.rest = binding.restPositions;
+
+    this.secondaryBindings = [];
+    this.followers = [];
+    this.tentacleLines = [];
+    this.squidOrgans = null;
+    this.wireMesh = null;
+
+    this.accumulator = 0;
+    this.slow = false;
+    this.paused = false;
     this.energy = 0;
+    this.stretch = 0;
+
+    // 晶格线框调试辅助网格
+    this.initWireframe();
+    this.syncSurfaces();
   }
 
-  /* --- 抓取 --- */
-  grabPoint(worldPt, radius = 0.9) {
-    const inv = new THREE.Matrix4().copy(this.mesh.matrixWorld).invert();
-    const lp = worldPt.clone().applyMatrix4(inv);
-    const arr = this.pos.array;
-    let found = 0;
-    for (let i = 0; i < this.count; i++) {
-      const dx = arr[i*3]-lp.x, dy = arr[i*3+1]-lp.y, dz = arr[i*3+2]-lp.z;
-      if (dx*dx+dy*dy+dz*dz < radius*radius) {
-        this.grabbed.set(i, { target: new THREE.Vector3(arr[i*3], arr[i*3+1], arr[i*3+2]) });
-        found++;
-      }
-    }
-    return found;
+  initWireframe() {
+    const wireMat = new THREE.MeshBasicMaterial({
+      color: '#0f766e',
+      wireframe: true,
+      transparent: true,
+      opacity: 0.22,
+      depthWrite: false
+    });
+    this.wireMesh = new THREE.Mesh(this.mesh.geometry, wireMat);
+    this.wireMesh.frustumCulled = false;
+    this.wireMesh.visible = false;
+    this.group.add(this.wireMesh);
   }
+
+  setWireframe(visible) {
+    if (this.wireMesh) this.wireMesh.visible = !!visible;
+  }
+
+  setSlow(slow) {
+    this.slow = !!slow;
+  }
+
+  setPaused(paused) {
+    this.paused = !!paused;
+    if (this.paused) this.release();
+  }
+
+  setFirmness(val) {
+    this.physics.setFirmness(val);
+  }
+
+  setDamping(val) {
+    this.physics.setDamping(val);
+  }
+
+  setJiggle(val) {
+    this.physics.setJiggle(val);
+  }
+
+  /* --- 添加从属几何体（如西瓜皮） --- */
+  addSecondaryMesh(secMesh, scale = 1.0, offset) {
+    secMesh.frustumCulled = false;
+    this.group.add(secMesh);
+    const binding = bindGeometryToPhysics(secMesh.geometry, this.physics, scale, offset);
+    this.secondaryBindings.push({ mesh: secMesh, geometry: secMesh.geometry, ...binding });
+  }
+
+  /* --- 添加跟随物（如西瓜籽、骰子点、眼睛） --- */
+  follow(obj, vertOrRestPos, offset = V3()) {
+    let embedding = null;
+    if (vertOrRestPos && vertOrRestPos.indices && vertOrRestPos.weights) {
+      embedding = vertOrRestPos;
+    } else if (Array.isArray(vertOrRestPos)) {
+      embedding = this.physics.embed(vertOrRestPos[0], vertOrRestPos[1], vertOrRestPos[2]);
+    } else if (vertOrRestPos instanceof THREE.Vector3) {
+      embedding = this.physics.embed(vertOrRestPos.x, vertOrRestPos.y, vertOrRestPos.z);
+    } else if (typeof vertOrRestPos === 'number') {
+      const rx = this.rest[vertOrRestPos * 3] || 0;
+      const ry = this.rest[vertOrRestPos * 3 + 1] || 0;
+      const rz = this.rest[vertOrRestPos * 3 + 2] || 0;
+      embedding = this.physics.embed(rx, ry, rz);
+    } else {
+      embedding = this.physics.embed(0, 0, 0);
+    }
+    this.followers.push({ obj, embedding, offset });
+  }
+
+  /* --- 鱿鱼器官与触手设置 --- */
+  setSquidOrgans(organs) {
+    this.squidOrgans = organs;
+    this.group.add(organs.group);
+    organs.coreEmbed = this.physics.embed(...organs.coreRest);
+    organs.leftEyeEmbed = this.physics.embed(...organs.leftEyeRest);
+    organs.rightEyeEmbed = this.physics.embed(...organs.rightEyeRest);
+  }
+
+  setTentacleMeshes(tentacleMeshes) {
+    this.tentacleLines = [];
+    for (const item of tentacleMeshes) {
+      this.group.add(item.mesh);
+      this.tentacleLines.push(item);
+    }
+  }
+
+  /* --- 抓取与交互 --- */
+  grabPoint(worldPt, radius = 0.95) {
+    const inv = new THREE.Matrix4().copy(this.group.matrixWorld).invert();
+    const lp = worldPt.clone().applyMatrix4(inv);
+    const embed = this.physics.embed(lp.x, lp.y, lp.z);
+    this.physics.grab = {
+      ...embed,
+      target: [lp.x, lp.y, lp.z]
+    };
+    this._grabPt = worldPt.clone();
+    return embed.indices.length;
+  }
+
   dragTo(worldPt) {
-    const inv = new THREE.Matrix4().copy(this.mesh.matrixWorld).invert();
+    if (!this.physics.grab) return;
+    const inv = new THREE.Matrix4().copy(this.group.matrixWorld).invert();
     const lp = worldPt.clone().applyMatrix4(inv);
-    for (const g of this.grabbed.values()) g.target.copy(lp);
+    this.physics.grab.target = [lp.x, lp.y, lp.z];
   }
-  release() { this.grabbed.clear(); }
 
-  // 本地坐标增量拖拽（被抓取的顶点跟随）
   dragLocal(dx, dy, dz) {
-    const arr = this.pos.array;
-    for (const i of this.grabbed.keys()) {
-      const i3 = i * 3;
-      arr[i3] += dx; arr[i3+1] += dy; arr[i3+2] += dz;
-      // 给一点速度感，松手有惯性
-      this.vel[i3] = this.vel[i3] * 0.6 + dx * 2.2;
-      this.vel[i3+1] = this.vel[i3+1] * 0.6 + dy * 2.2;
-      this.vel[i3+2] = this.vel[i3+2] * 0.6 + dz * 2.2;
-    }
+    if (!this.physics.grab) return;
+    this.physics.grab.target[0] += dx;
+    this.physics.grab.target[1] += dy;
+    this.physics.grab.target[2] += dz;
   }
 
-  poke(worldPt, impulse, radius = 1.1) {
-    const inv = new THREE.Matrix4().copy(this.mesh.matrixWorld).invert();
+  release() {
+    this.physics.grab = null;
+    this._grabPt = null;
+  }
+
+  poke(worldPt, impulse = V3(0, -3.5, 0), radius = 1.1) {
+    const inv = new THREE.Matrix4().copy(this.group.matrixWorld).invert();
     const lp = worldPt.clone().applyMatrix4(inv);
-    const arr = this.pos.array;
-    for (let i = 0; i < this.count; i++) {
-      const dx = arr[i*3]-lp.x, dy = arr[i*3+1]-lp.y, dz = arr[i*3+2]-lp.z;
-      const d2 = dx*dx+dy*dy+dz*dz;
-      if (d2 < radius*radius) {
-        const w = 1 - Math.sqrt(d2)/radius;
-        this.vel[i*3] += impulse.x*w; this.vel[i*3+1] += impulse.y*w; this.vel[i*3+2] += impulse.z*w;
-      }
-    }
+    const str = impulse instanceof THREE.Vector3 ? impulse.length() * 2.2 : 5.0;
+    this.physics.poke(lp, str);
   }
 
   shake(strength = 1) {
-    for (let i = 0; i < this.count; i++) {
-      const a = Math.random()*Math.PI*2;
-      const s = strength * (0.9 + Math.random()*0.9);
-      this.vel[i*3] += Math.cos(a)*s;
-      this.vel[i*3+1] += Math.abs(Math.sin(a))*s*0.7;
-      this.vel[i*3+2] += Math.sin(a)*s*0.5;
-    }
+    this.physics.nudge(1.2 * strength, 3.8 * strength, -0.7 * strength);
   }
 
   wave(strength = 1, time = 0) {
-    // 正弦波浪（晃一晃）
-    const arr = this.pos.array;
-    for (let i = 0; i < this.count; i++) {
-      const y = arr[i*3+1];
-      const ph = time*10 + y*2.2;
-      this.vel[i*3] += Math.sin(ph)*strength*0.55;
-      this.vel[i*3+2] += Math.cos(ph*0.8)*strength*0.3;
-    }
+    this.physics.nudge(1.0 * strength, 3.5 * strength, -0.5 * strength);
   }
 
-  follow(obj, vertIdx, offset) {
-    this.followers.push({ obj, vert: vertIdx, offset: offset || V3() });
-  }
+  /* --- 顶点与几何体表面同步 --- */
+  syncSurfaces() {
+    const p = this.physics.position;
 
-  update(dt, time) {
-    const arr = this.pos.array, rest = this.rest, vel = this.vel;
-    const k = this.k, damp = Math.exp(-this.damping*dt), coh = this.cohesion;
-    let e = 0;
-    // 邻域平均（先算，避免读写冲突用临时）
-    for (let i = 0; i < this.count; i++) {
-      const nb = this.neighbors[i];
-      let ax=0, ay=0, az=0;
-      if (nb.length) {
-        for (let j = 0; j < nb.length; j++) {
-          const m = nb[j]*3;
-          ax += arr[m]; ay += arr[m+1]; az += arr[m+2];
+    // 1. 同步主模型顶点
+    if (this.mainBinding) {
+      const { geometry, bindings } = this.mainBinding;
+      const attr = geometry.getAttribute('position');
+      for (let i = 0; i < attr.count; i++) {
+        const b = bindings[i];
+        if (!b) continue;
+        const { indices, weights } = b;
+        let x = 0, y = 0, z = 0;
+        for (let j = 0; j < 8; j++) {
+          const idx = indices[j], w = weights[j];
+          x += p[idx] * w;
+          y += p[idx + 1] * w;
+          z += p[idx + 2] * w;
         }
-        const inv = 1/nb.length;
-        ax = (ax*inv - arr[i*3]) * coh;
-        ay = (ay*inv - arr[i*3+1]) * coh;
-        az = (az*inv - arr[i*3+2]) * coh;
+        attr.setXYZ(i, x, y, z);
       }
-      const i3 = i*3;
-      let fx = (rest[i3]-arr[i3])*k + ax + this.externalForce.x;
-      let fy = (rest[i3+1]-arr[i3+1])*k + ay + this.externalForce.y;
-      let fz = (rest[i3+2]-arr[i3+2])*k + az + this.externalForce.z;
-      const g = this.grabbed.get(i);
-      if (g) {
-        fx += (g.target.x-arr[i3])*420;
-        fy += (g.target.y-arr[i3+1])*420;
-        fz += (g.target.z-arr[i3+2])*420;
-      }
-      vel[i3] = (vel[i3]+fx*dt)*damp;
-      vel[i3+1] = (vel[i3+1]+fy*dt)*damp;
-      vel[i3+2] = (vel[i3+2]+fz*dt)*damp;
-      arr[i3] += vel[i3]*dt; arr[i3+1] += vel[i3+1]*dt; arr[i3+2] += vel[i3+2]*dt;
-      e += vel[i3]*vel[i3]+vel[i3+1]*vel[i3+1]+vel[i3+2]*vel[i3+2];
+      attr.needsUpdate = true;
+      geometry.computeVertexNormals();
     }
-    this.energy = e;
-    this.pos.needsUpdate = true;
-    this.mesh.geometry.computeVertexNormals();
-    // 跟随物（籽、眼睛等）
-    const m = this.mesh.matrixWorld;
-    const tv = JellyBody._tv || (JellyBody._tv = new THREE.Vector3());
-    for (const f of this.followers) {
-      const i3 = f.vert*3;
-      tv.set(arr[i3]+f.offset.x, arr[i3+1]+f.offset.y, arr[i3+2]+f.offset.z).applyMatrix4(m);
-      f.obj.position.copy(this.group.worldToLocal(tv.clone()));
+
+    // 2. 同步从属模型（如西瓜皮外壳）
+    for (const item of this.secondaryBindings) {
+      const attr = item.geometry.getAttribute('position');
+      for (let i = 0; i < attr.count; i++) {
+        const b = item.bindings[i];
+        if (!b) continue;
+        const { indices, weights } = b;
+        let x = 0, y = 0, z = 0;
+        for (let j = 0; j < 8; j++) {
+          const idx = indices[j], w = weights[j];
+          x += p[idx] * w;
+          y += p[idx + 1] * w;
+          z += p[idx + 2] * w;
+        }
+        attr.setXYZ(i, x, y, z);
+      }
+      attr.needsUpdate = true;
+      item.geometry.computeVertexNormals();
+    }
+
+    // 3. 同步嵌入跟随物（西瓜籽、骰子圆点等）
+    for (const item of this.followers) {
+      if (item.embedding) {
+        const pos = this.physics.evaluateEmbedding(item.embedding);
+        item.obj.position.set(pos[0] + item.offset.x, pos[1] + item.offset.y, pos[2] + item.offset.z);
+      }
+    }
+
+    // 4. 同步鱿鱼器官（发光核心 + 大眼萌珠）
+    if (this.squidOrgans) {
+      const corePos = this.physics.evaluateEmbedding(this.squidOrgans.coreEmbed);
+      this.squidOrgans.core.position.set(...corePos);
+      const leftEyePos = this.physics.evaluateEmbedding(this.squidOrgans.leftEyeEmbed);
+      this.squidOrgans.leftEye.position.set(...leftEyePos);
+      const rightEyePos = this.physics.evaluateEmbedding(this.squidOrgans.rightEyeEmbed);
+      this.squidOrgans.rightEye.position.set(...rightEyePos);
+    }
+
+    // 5. 同步鱿鱼柔韧触手连续动态管道
+    if (this.tentacleLines && this.tentacleLines.length) {
+      const tentacles = this.physics.tentacles;
+      for (let t = 0; t < this.tentacleLines.length; t++) {
+        const line = this.tentacleLines[t];
+        const chain = tentacles[t];
+        if (!chain) continue;
+
+        const attr = line.geom.getAttribute('position');
+        const rest = line.restPos;
+        const segCount = chain.particles.length;
+
+        for (let i = 0; i < attr.count; i++) {
+          const rawY = Math.max(0, Math.min(1.0, -rest[i * 3 + 1] / 1.2));
+          const segIdx = Math.max(0, Math.min(segCount - 2, Math.floor(rawY * (segCount - 1))));
+          const segT = (rawY * (segCount - 1)) - segIdx;
+
+          const pA = chain.particles[segIdx].pos;
+          const pB = chain.particles[segIdx + 1].pos;
+
+          const cx = pA[0] + (pB[0] - pA[0]) * segT;
+          const cy = pA[1] + (pB[1] - pA[1]) * segT;
+          const cz = pA[2] + (pB[2] - pA[2]) * segT;
+
+          const rx = rest[i * 3];
+          const rz = rest[i * 3 + 2];
+          attr.setXYZ(i, cx + rx, cy, cz + rz);
+        }
+        attr.needsUpdate = true;
+        line.geom.computeVertexNormals();
+      }
     }
   }
 
-  setRestToCurrent() { this.rest.set(this.pos.array); this.vel.fill(0); }
+  // 120Hz 亚步长物理模拟循环更新
+  update(dt, time) {
+    if (this.paused) return;
+
+    const fixedDT = 1 / 120;
+    this.accumulator += Math.min(dt, 0.05) * (this.slow ? 0.25 : 1.0);
+    let steps = 0;
+    while (this.accumulator >= fixedDT && steps < 6) {
+      this.physics.step(fixedDT);
+      this.accumulator -= fixedDT;
+      steps++;
+    }
+
+    this.syncSurfaces();
+    const m = this.physics.metrics();
+    this.energy = m.energy;
+    this.stretch = m.stretch;
+  }
 
   dispose() {
     this.mesh.geometry.dispose();
-    if (Array.isArray(this.mesh.material)) this.mesh.material.forEach(m=>m.dispose());
+    if (Array.isArray(this.mesh.material)) this.mesh.material.forEach(m => m.dispose());
     else this.mesh.material.dispose();
-  }
-}
 
-// 空间哈希邻域
-function buildNeighbors(posAttr, restArr) {
-  const count = posAttr.count;
-  const cell = 0.34;
-  const grid = new Map();
-  const key = (x,y,z) => `${Math.floor(x/cell)},${Math.floor(y/cell)},${Math.floor(z/cell)}`;
-  for (let i = 0; i < count; i++) {
-    const k = key(restArr[i*3], restArr[i*3+1], restArr[i*3+2]);
-    if (!grid.has(k)) grid.set(k, []);
-    grid.get(k).push(i);
-  }
-  const neighbors = new Array(count);
-  for (let i = 0; i < count; i++) {
-    const x = restArr[i*3], y = restArr[i*3+1], z = restArr[i*3+2];
-    const cx = Math.floor(x/cell), cy = Math.floor(y/cell), cz = Math.floor(z/cell);
-    const list = [];
-    for (let a=-1;a<=1;a++) for (let b=-1;b<=1;b++) for (let c=-1;c<=1;c++) {
-      const cellList = grid.get(`${cx+a},${cy+b},${cz+c}`);
-      if (!cellList) continue;
-      for (const j of cellList) {
-        if (j === i || list.length >= 14) continue;
-        const dx = restArr[j*3]-x, dy = restArr[j*3+1]-y, dz = restArr[j*3+2]-z;
-        if (dx*dx+dy*dy+dz*dz < 0.16) list.push(j);
-      }
+    for (const sec of this.secondaryBindings) {
+      sec.geometry.dispose();
+      if (sec.mesh.material) sec.mesh.material.dispose();
     }
-    neighbors[i] = list;
+    if (this.wireMesh) {
+      this.wireMesh.geometry.dispose();
+      this.wireMesh.material.dispose();
+    }
   }
-  return neighbors;
 }
