@@ -1,117 +1,122 @@
 /* ============================================================
- * audio.js — Web Audio 合成 ASMR 音效
- * 捏=挤压声 / 切=脆裂声 / 晃=水波声 / 弹=Q弹声 / 摇=骰子声
+ * audio.js — 真实 ASMR 采样音效（CC0，Freesound）
+ * 捏=史莱姆挤压 / 切=西瓜刀切 / 晃=果冻晃动 / 弹=果冻揉捏
+ *
+ * 音源（CC0，可商用，无需署名）：
+ * - jelly-wobble1/2.mp3: "Jelly Wobbling on Plate" by lolamadeus
+ *   https://freesound.org/people/lolamadeus/sounds/181914/
+ * - jelly-mangle.mp3: "Jelly Mangling on Plate" by lolamadeus
+ * - jelly-fall1/2.mp3: "Jelly Falling Onto Plate" by lolamadeus
+ * - melon-stab.mp3: "J's Meaty Stab" (stabbing watermelon) by justjenah
+ *   https://freesound.org/people/justjenah/sounds/752346/
+ * - slime-squish.mp3: "Blood Gore Slime Squish" by EminYILDIRIM
+ *   https://freesound.org/people/EminYILDIRIM/sounds/535354/
+ * - slime-noise.mp3: "slime noise" by jtap97
+ *   https://freesound.org/people/jtap97/sounds/448893/
  * ============================================================ */
 'use strict';
 
 const JellySound = (() => {
-  let ctx = null;
-  let master = null;
   let enabled = true;
   let volume = 0.8;
+  const cache = {};   // name -> Audio[]
+  const POOL = 4;
 
-  function ensure() {
-    if (ctx) { if (ctx.state === 'suspended') ctx.resume(); return true; }
+  const FILES = {
+    wobble1: 'audio/jelly-wobble1.mp3',
+    wobble2: 'audio/jelly-wobble2.mp3',
+    mangle:  'audio/jelly-mangle.mp3',
+    fall1:   'audio/jelly-fall1.mp3',
+    fall2:   'audio/jelly-fall2.mp3',
+    stab:    'audio/melon-stab.mp3',
+    squish:  'audio/slime-squish.mp3',
+    snoise:  'audio/slime-noise.mp3',
+  };
+
+  function get(name) {
+    if (!cache[name]) {
+      cache[name] = [];
+      for (let i = 0; i < POOL; i++) {
+        const a = new Audio(FILES[name]);
+        a.preload = 'auto';
+        cache[name].push(a);
+      }
+    }
+    // 找一个空闲的
+    const pool = cache[name];
+    return pool.find(a => a.paused) || pool[0];
+  }
+
+  function play(name, { rate = 1, gain = 1, delay = 0 } = {}) {
+    if (!enabled) return;
     try {
-      ctx = new (window.AudioContext || window.webkitAudioContext)();
-      master = ctx.createGain();
-      master.gain.value = volume;
-      master.connect(ctx.destination);
-      return true;
-    } catch (e) { return false; }
+      const a = get(name);
+      a.playbackRate = rate;
+      a.volume = Math.min(1, volume * gain);
+      a.currentTime = 0;
+      if (delay > 0) setTimeout(() => a.play().catch(() => {}), delay * 1000);
+      else a.play().catch(() => {});
+    } catch (e) {}
   }
 
-  function noiseBuffer(dur) {
-    const b = ctx.createBuffer(1, ctx.sampleRate * dur, ctx.sampleRate);
-    const d = b.getChannelData(0);
-    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-    return b;
-  }
-
-  function playNoise({ dur = 0.2, freq = 800, q = 1, type = 'lowpass', gain = 0.5, slideTo = null, at = 0 }) {
-    if (!enabled || !ensure()) return;
-    const t = ctx.currentTime + at;
-    const src = ctx.createBufferSource();
-    src.buffer = noiseBuffer(dur + 0.05);
-    const f = ctx.createBiquadFilter();
-    f.type = type; f.frequency.setValueAtTime(freq, t); f.Q.value = q;
-    if (slideTo) f.frequency.exponentialRampToValueAtTime(Math.max(40, slideTo), t + dur);
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(gain, t + 0.015);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    src.connect(f); f.connect(g); g.connect(master);
-    src.start(t); src.stop(t + dur + 0.05);
-  }
-
-  function playTone({ freq = 440, dur = 0.2, type = 'sine', gain = 0.3, slideTo = null, at = 0 }) {
-    if (!enabled || !ensure()) return;
-    const t = ctx.currentTime + at;
-    const o = ctx.createOscillator();
-    o.type = type;
-    o.frequency.setValueAtTime(freq, t);
-    if (slideTo) o.frequency.exponentialRampToValueAtTime(Math.max(20, slideTo), t + dur);
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(gain, t + 0.02);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(g); g.connect(master);
-    o.start(t); o.stop(t + dur + 0.05);
-  }
+  const rnd = (a, b) => a + Math.random() * (b - a);
 
   return {
-    unlock() { ensure(); },
+    unlock() {
+      // 预加载：播一次静音以解锁移动端音频
+      if (!enabled) return;
+      try {
+        const a = get('wobble1');
+        a.volume = 0; a.play().then(() => a.pause()).catch(() => {});
+      } catch (e) {}
+    },
     get enabled() { return enabled; },
     setEnabled(v) { enabled = !!v; },
-    setVolume(v) { volume = v; if (master) master.gain.value = v; },
+    setVolume(v) { volume = v; },
 
     // UI 轻点
-    pop() { playTone({ freq: 660, slideTo: 880, dur: 0.08, gain: 0.18, type: 'sine' }); },
-    // 捏：低频挤压
+    pop() { play('fall1', { rate: 1.8, gain: 0.5 }); },
+    // 捏：史莱姆挤压
     squeeze(v = 1) {
-      playNoise({ dur: 0.28, freq: 320, slideTo: 120, q: 0.8, gain: 0.4 * v });
-      playTone({ freq: 140, slideTo: 70, dur: 0.25, gain: 0.22 * v });
+      play('squish', { rate: rnd(0.85, 1.15), gain: 0.7 * v });
+      play('mangle', { rate: rnd(0.9, 1.2), gain: 0.4 * v, delay: 0.05 });
     },
-    // 切：脆裂
+    // 切：刀切西瓜
     slice() {
-      playNoise({ dur: 0.12, freq: 3200, slideTo: 900, q: 1.4, type: 'bandpass', gain: 0.5 });
-      playTone({ freq: 1900, slideTo: 700, dur: 0.09, gain: 0.16, type: 'triangle' });
+      play('stab', { rate: rnd(0.95, 1.1), gain: 0.8 });
     },
-    // 晃：水波
+    // 晃：果冻晃动
     wobble() {
-      playTone({ freq: 220, slideTo: 330, dur: 0.35, gain: 0.25 });
-      playTone({ freq: 330, slideTo: 180, dur: 0.4, gain: 0.2, at: 0.12 });
-      playNoise({ dur: 0.5, freq: 900, slideTo: 400, q: 2, gain: 0.12 });
+      play(Math.random() < 0.5 ? 'wobble1' : 'wobble2', { rate: rnd(0.9, 1.1), gain: 0.7 });
     },
     // 弹：Q 弹
     boing(v = 1) {
-      playTone({ freq: 300, slideTo: 520, dur: 0.16, gain: 0.3 * v, type: 'sine' });
-      playTone({ freq: 520, slideTo: 380, dur: 0.14, gain: 0.2 * v, at: 0.1 });
+      play('mangle', { rate: rnd(1.1, 1.4), gain: 0.6 * v });
+      play('wobble1', { rate: rnd(1.2, 1.5), gain: 0.3 * v, delay: 0.08 });
     },
     // 橡皮筋：绷
     twang() {
-      playTone({ freq: 180, slideTo: 90, dur: 0.22, gain: 0.3, type: 'sawtooth' });
-      playNoise({ dur: 0.1, freq: 1200, q: 3, type: 'bandpass', gain: 0.2 });
+      play('snoise', { rate: rnd(0.7, 0.9), gain: 0.6 });
+      play('squish', { rate: 1.3, gain: 0.3, delay: 0.05 });
     },
     // 骰子摇晃
     rattle(n = 5) {
       for (let i = 0; i < n; i++) {
-        playNoise({ dur: 0.05, freq: 2200 + Math.random() * 1500, q: 2, type: 'bandpass', gain: 0.3, at: i * 0.09 });
+        play('fall1', { rate: rnd(1.4, 1.8), gain: 0.5, delay: i * 0.09 });
       }
     },
     // 骰子落定
     thock() {
-      playTone({ freq: 240, slideTo: 120, dur: 0.12, gain: 0.4, type: 'triangle' });
-      playNoise({ dur: 0.06, freq: 900, q: 1, gain: 0.25 });
+      play('fall2', { rate: rnd(0.9, 1.1), gain: 0.8 });
     },
     // 模具成型
     mold() {
-      playNoise({ dur: 0.3, freq: 500, slideTo: 200, q: 1, gain: 0.3 });
-      playTone({ freq: 440, slideTo: 660, dur: 0.2, gain: 0.2, at: 0.15 });
+      play('snoise', { rate: rnd(0.8, 1.0), gain: 0.5 });
+      play('squish', { rate: 0.8, gain: 0.4, delay: 0.15 });
     },
     // 翻面
     flip() {
-      playNoise({ dur: 0.25, freq: 700, slideTo: 1400, q: 1.5, gain: 0.22 });
+      play('wobble2', { rate: 1.2, gain: 0.5 });
     },
   };
 })();

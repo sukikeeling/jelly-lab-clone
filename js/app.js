@@ -924,7 +924,7 @@ function makeTentacleMesh(rings, radial, mat) {
     for (let j = 0; j < radial; j++) {
       const a = i * radial + j, b = i * radial + (j + 1) % radial;
       const c = (i + 1) * radial + j, d = (i + 1) * radial + (j + 1) % radial;
-      idx.push(a, c, b, b, c, d);
+      idx.push(a, b, c, b, d, c);
     }
   }
   geo.setIndex(idx);
@@ -967,12 +967,12 @@ function initSquid(jelly) {
   const group = jelly.group;
   const chains = [];
   const N = 8, SEG = 8, SEG_LEN = 0.2, RADIAL = 8;
-  // 触手材质：半实粉色
+  // 触手材质：实心果冻粉（低透光，显圆润）
   const mat = new THREE.MeshPhysicalMaterial({
-    color: 0xf78ba4, transmission: 0.35, roughness: 0.3, thickness: 0.9,
-    clearcoat: 0.8, clearcoatRoughness: 0.2, envMapIntensity: 1.0,
+    color: 0xf78ba4, transmission: 0.0, roughness: 0.22, thickness: 1.4,
+    clearcoat: 1.0, clearcoatRoughness: 0.08, envMapIntensity: 1.1,
   });
-  const radiusFn = (i) => 0.10 - i * 0.0105; // 根部粗、尖端细
+  const radiusFn = (i) => 0.17 - i * 0.016; // 根部粗、尖端细
   for (let c = 0; c < N; c++) {
     const a = c / N * Math.PI * 2 + 0.2;
     const ax = Math.cos(a) * 0.34, az = Math.sin(a) * 0.34;
@@ -1020,7 +1020,7 @@ function updateSquid(dt, t) {
   }
   // 渲染：连续 tube 跟随链条
   for (const ch of sp.chains) {
-    updateTentacleMesh(ch.mesh, ch.pts, 8, (i) => 0.10 - i * 0.0105);
+    updateTentacleMesh(ch.mesh, ch.pts, 8, (i) => 0.17 - i * 0.016);
   }
 }
 
